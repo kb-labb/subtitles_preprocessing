@@ -67,7 +67,7 @@ def split_audio(audio_df : pd.DataFrame):
         audio_chunk = audio[row["start_bucket"] : row["end_bucket"]]
         os.makedirs(os.path.join(output_dir, row['program']), exist_ok=True)
         filename = f"{output_dir}/{row['program']}/{row['observation_nr']}.wav"
-        #detect_language(filename) #detect language doesnät work, wither whisper-tiny sucks or I'm not doing it correctly
+        #detect_language(filename) #detect language doesn't work, either whisper-tiny sucks or I'm not doing it correctly
         audio_chunk.export(filename, format="wav")
         filenames.append(filename)
 
