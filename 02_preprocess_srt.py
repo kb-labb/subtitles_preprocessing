@@ -73,7 +73,6 @@ for p in program_names:
         df_sub = pd.DataFrame(sub_block_data)
         df_subs.append(df_sub)
     df_subs = pd.concat(df_subs).reset_index(drop=True)
-
     # Convert srt timestamps to milliseconds
     df_subs["start_ms"] = df_subs["start"].map(
         lambda x: x.hours * 3600000 + x.minutes * 60000 + x.seconds * 1000 + x.milliseconds
@@ -82,7 +81,25 @@ for p in program_names:
         lambda x: x.hours * 3600000 + x.minutes * 60000 + x.seconds * 1000 + x.milliseconds
     )
     df_subs["duration_s"] = (df_subs["end_ms"] - df_subs["start_ms"]) / 1000
-
+    print('df_subs ', df_subs.head(100))
+    #df_subs["exists"] = df_subs.drop("end_ms", axis=1).isin(df_subs["end_ms"]).any(df_subs['start_ms'])
+    df_start = df_subs.drop(df_subs.columns.difference(['start_ms']), axis=1)
+    #df_end = df_subs.drop(df_subs.columns.difference(['end_ms']), axis=1)
+    df_start = df_start.rename({'start_ms': 'end_ms'}, axis=1)
+    #df_end = df_end.rename({'end_ms': 'time'}, axis=1)
+    #print('df_start ', df_start)
+    #print('df_end ', df_end)
+    df_join = df_subs.merge(df_start.drop_duplicates(), on=['end_ms'], how='left', indicator=True)
+    #df_join = df_start.merge(df_end.drop_duplicates(), on=['time'], how='left', indicator=True)
+    #df_join = df_join.rename({'time': 'start_ms'}, axis=1)
+    #df_join = df_join.rename({'time': 'start_ms'}, axis=1)
+    print("df join ", df_join)
+    #df_final = df_subs.merge(df_join, on = 'start_ms')
+    df_join = df_join[df_join._merge == 'both']
+    print("df join ", df_join)
+    df_subs = df_join
+    #print('df_subs ', df_subs)
+    #print('df_final ', df_final)
     logging.info("Splitting srt:s into buckets")
     # Divide the subtitle blocks into 30 second buckets
     df_groups = []
