@@ -49,7 +49,7 @@ for p in program_names:
     df["srt"] = df["files"].map(lambda x: [file for file in x if file.endswith(".srt")][0])
     df["program"] = p
     df.drop("files", axis=1, inplace=True)
-
+    df.drop(df.tail(1).index,inplace=True) # drop duplicate row
 
     logging.info("Reading srt:s")
     # Read every srt file in df and save each line and timestamp in a dataframe
@@ -81,25 +81,10 @@ for p in program_names:
         lambda x: x.hours * 3600000 + x.minutes * 60000 + x.seconds * 1000 + x.milliseconds
     )
     df_subs["duration_s"] = (df_subs["end_ms"] - df_subs["start_ms"]) / 1000
-    print('df_subs ', df_subs.head(100))
-    #df_subs["exists"] = df_subs.drop("end_ms", axis=1).isin(df_subs["end_ms"]).any(df_subs['start_ms'])
-    df_start = df_subs.drop(df_subs.columns.difference(['start_ms']), axis=1)
-    #df_end = df_subs.drop(df_subs.columns.difference(['end_ms']), axis=1)
-    df_start = df_start.rename({'start_ms': 'end_ms'}, axis=1)
-    #df_end = df_end.rename({'end_ms': 'time'}, axis=1)
-    #print('df_start ', df_start)
-    #print('df_end ', df_end)
-    df_join = df_subs.merge(df_start.drop_duplicates(), on=['end_ms'], how='left', indicator=True)
-    #df_join = df_start.merge(df_end.drop_duplicates(), on=['time'], how='left', indicator=True)
-    #df_join = df_join.rename({'time': 'start_ms'}, axis=1)
-    #df_join = df_join.rename({'time': 'start_ms'}, axis=1)
-    print("df join ", df_join)
-    #df_final = df_subs.merge(df_join, on = 'start_ms')
-    df_join = df_join[df_join._merge == 'both']
-    print("df join ", df_join)
-    df_subs = df_join
-    #print('df_subs ', df_subs)
-    #print('df_final ', df_final)
+    df_subs['force_start'] = np.nan 
+    df_subs['force_end'] = np.nan 
+    df_subs['force_start'] = df_subs['start_ms'][abs(df_subs["start_ms"].diff())>4000]
+    df_subs['force_end'] = df_subs['end_ms'][abs(df_subs["end_ms"].diff(-1))>4000]
     logging.info("Splitting srt:s into buckets")
     # Divide the subtitle blocks into 30 second buckets
     df_groups = []
@@ -115,10 +100,10 @@ for p in program_names:
             if ((end - start) / 1000) >= 30:
                 bucket_nr += 1
                 start = df_group["start_ms"].iloc[i]
-
+    
             prev_segment_length = (end - start) / 1000
             bucket_cumsum.append(prev_segment_length)
-            bucket_nrs.append(bucket_nr)
+            bucket_nrs.append(bucket_nr)                  
 
         df_group["observation_nr"] = bucket_nrs
         df_group["bucket_cumsum"] = bucket_cumsum
@@ -144,7 +129,8 @@ for p in program_names:
 
     # end_bucket is the end_ms of the bucket in an observation_nr group
     df_groups["end_bucket"] = df_groups.groupby(["observation_nr", "audio"])["end_ms"].transform(max)
-
+    print('df start bucket ', df_groups["start_bucket"])
+    print('df end bucket ', df_groups["end_bucket"])
 
     def format_timestamp(timestamp):
         """
@@ -183,5 +169,4 @@ for p in program_names:
             "bucket_duration_s",
         ]
     ].to_parquet(os.path.join(args.output,p, "subs_preprocessed.parquet"), index=False)
-    print(df_groups)
     logging.info("Ending")

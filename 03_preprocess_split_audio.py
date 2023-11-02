@@ -112,7 +112,7 @@ def split_audio(audio_df : pd.DataFrame):
     audio = AudioSegment.from_wav(audio_path)
     os.makedirs(output_dir, exist_ok=True)
     filenames = []
-    model, utils = load_model() 
+    model, utils = load_model()
     for i, row in audio_df.iterrows():
         audio_chunk = audio[row["start_bucket"] : row["end_bucket"]]
         os.makedirs(os.path.join(output_dir, row['program']), exist_ok=True)
@@ -127,7 +127,7 @@ def split_audio(audio_df : pd.DataFrame):
             # language detection
             pred_lang, pred_text = detect_language(filename) 
             if pred_lang == ['<|sv|>']:
-                print('found swedish: ', pred_text)
+                #print('found swedish: ', pred_text)
                 audio_chunk.export(filename, format="wav")
                 filenames.append(filename)
             else:
@@ -144,7 +144,6 @@ for parquet_file in tqdm(parquet_files):
     df_subs["bucket_filename"] = (
             df_subs["observation_nr"].astype(str) + ".wav"
     )
-
     # Keep only first obs in each observation_nr group
     df_subs_unique = df_subs.drop_duplicates(["observation_nr", "audio"], keep="first")
     df_subs_unique = df_subs_unique.drop(df_subs_unique.tail(1).index) 
@@ -154,7 +153,7 @@ for parquet_file in tqdm(parquet_files):
     df_list = [audio_groups.get_group(df) for df in audio_groups.groups]
     logging.info("Splitting audio")
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        out_filenames = list(tqdm(executor.map(split_audio, df_list), total=len(df_list)-1))
+        out_filenames = list(tqdm(executor.map(split_audio, df_list), total=len(df_list)))
     #drop filenames that didn't pass language detection check by a left join 
     out_filenames_new = [x.replace(f"{output_dir}/{df_subs['program'][0]}/", '') for x in out_filenames[0]]
     out_filenames_df = pd.DataFrame({'bucket_filename':out_filenames_new})
