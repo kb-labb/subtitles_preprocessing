@@ -7,7 +7,6 @@ import argparse
 from tqdm import tqdm
 import pdb
 import re
-
 import logging
 import time
 
@@ -129,8 +128,6 @@ for p in program_names:
 
     # end_bucket is the end_ms of the bucket in an observation_nr group
     df_groups["end_bucket"] = df_groups.groupby(["observation_nr", "audio"])["end_ms"].transform(max)
-    print('df start bucket ', df_groups["start_bucket"])
-    print('df end bucket ', df_groups["end_bucket"])
 
     def format_timestamp(timestamp):
         """
