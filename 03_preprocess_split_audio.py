@@ -78,8 +78,8 @@ def split_audio(audio_df : pd.DataFrame):
         save_processed_audio(audio_chunk, filename)
         # language detection
         segments, info = model.transcribe(filename, vad_filter=True, beam_size=5)
-        if info.language == 'sv':
-            #print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+        if info.language == 'sv' and info.language_probability > 0.7:
+            print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
             audio_chunk.export(filename, format="wav")
             filenames.append(filename)
         else:
@@ -114,6 +114,7 @@ def main():
         df_subs_unique = df_subs_unique[df_subs_unique._merge == 'both']
         df_subs_unique = df_subs_unique.copy()
         df_subs_unique["bucket_path"] = [bucket_path for program_paths_list in out_filenames for bucket_path in program_paths_list]
+        df_subs_unique['bucket_filename'] = df_subs_unique['bucket_filename'].str.slice_replace(0, 0, (df_subs_unique['program'][0]+"/")) 
 
         result = df_subs_unique[['bucket_filename', 'text_timestamps_bucket']].rename(columns={'bucket_filename': 'file_name',
                                                                                                'text_timestamps_bucket':
