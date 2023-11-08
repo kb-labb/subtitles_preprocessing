@@ -109,14 +109,17 @@ def main():
         out_filenames_df = pd.DataFrame({'bucket_filename':out_filenames_new})
         df_subs_unique = df_subs_unique.merge(out_filenames_df.drop_duplicates(), on=['bucket_filename'], how='left', indicator=True)
         df_subs_unique = df_subs_unique[df_subs_unique._merge == 'both']
-        df_subs_unique = df_subs_unique.copy()
-        df_subs_unique["bucket_path"] = [bucket_path for program_paths_list in out_filenames for bucket_path in program_paths_list]
-        df_subs_unique['bucket_filename'] = df_subs_unique['bucket_filename'].str.slice_replace(0, 0, (df_subs_unique['program'].iloc[0]+"/")) 
+        if df_subs_unique.empty:
+            os.rmdir(f"{output_dir}/{df_subs['program'][0]}")
+        else: 
+            df_subs_unique = df_subs_unique.copy()
+            df_subs_unique["bucket_path"] = [bucket_path for program_paths_list in out_filenames for bucket_path in program_paths_list]
+            df_subs_unique['bucket_filename'] = df_subs_unique['bucket_filename'].str.slice_replace(0, 0, (df_subs_unique['program'].iloc[0]+"/")) 
 
-        result = df_subs_unique[['bucket_filename', 'text_timestamps_bucket']].rename(columns={'bucket_filename': 'file_name',
+            result = df_subs_unique[['bucket_filename', 'text_timestamps_bucket']].rename(columns={'bucket_filename': 'file_name',
                                                                                                'text_timestamps_bucket':
                                                                                                    'transcription'})
-        result.to_csv(f"{output_dir}/{df_subs['program'][0]}/metadata.csv", index=False)
+            result.to_csv(f"{output_dir}/{df_subs['program'][0]}/metadata.csv", index=False)
 
     logging.info("Done")
 
