@@ -11,7 +11,6 @@ from tqdm import tqdm
 from pydub import AudioSegment
 import concurrent.futures
 import logging
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from faster_whisper import WhisperModel
 
 
@@ -52,10 +51,6 @@ parser.add_argument(
 args = parser.parse_args()
 output_dir = args.output
 
-print(torch.cuda.is_available())
-print(torch.cuda.device_count())
-print(torch.backends.cudnn.enabled)
-print(torch.backends.cudnn.version())
 parquet_files = [d for d in os.listdir(args.parquet_dir)]    
 sampling_rate = 16000   
 model_size = "large-v2"
