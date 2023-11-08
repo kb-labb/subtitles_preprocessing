@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+from os import makedirs
 from tqdm import tqdm
 import argparse
 import time
@@ -11,11 +12,13 @@ parser = argparse.ArgumentParser(formatter_class = argparse.RawDescriptionHelpFo
 parser.add_argument(
     "--metadata",
     type=str,
+    default='metadata',
     help="Path to metadafile." 
 )
 parser.add_argument(
     "--output",
     type=str,
+    default='split',
     help="Directory where .csv train, test, validation files are saved.")
 
 parser.add_argument('--ratios', nargs='+', type=float, default=[0.8, 0.1, 0.1],
@@ -24,10 +27,10 @@ parser.add_argument('--ratios', nargs='+', type=float, default=[0.8, 0.1, 0.1],
 args = vars(parser.parse_args())
     
 
-def make_splits(metadata_file, output_dir, ratios):
+def make_splits(metadata_dir, output_dir, ratios):
     """ Create and save .csv files with train/dev/test splits. """
 
-    metadata = pd.read_csv(metadata_file) #file with chunks' filenames and transcriptions 
+    metadata = pd.read_csv(os.path.join(metadata_dir, 'metadata_full.csv')) #file with chunks' filenames and transcriptions 
     train_size, test_size, val_size = ratios[0], ratios[1], ratios[2]
     
     metadata['programid'] = metadata['file_name'].apply(lambda x: ("_").join(re.findall(r"[\w']+", x)[:-2]))
@@ -47,8 +50,10 @@ def make_splits(metadata_file, output_dir, ratios):
     test_df.to_csv(f'{output_dir}/test.csv', index = False)
     validation_df.to_csv(f'{output_dir}/validation.csv', index = False)
 
-metadata_file = args["metadata"]
+metadata_dir = args["metadata"]
 output_dir = args["output"]
 ratios = args["ratios"] 
-make_splits(metadata_file, output_dir, ratios)
+if not os.path.exists(output_dir):
+    makedirs(output_dir)
+make_splits(metadata_dir, output_dir, ratios)
     
