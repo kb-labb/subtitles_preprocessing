@@ -15,7 +15,7 @@ parser.add_argument(
 parser.add_argument(
     "--output",
     type=str,
-    default='output',
+    default='metadata',
     help="Directory where the concatenated metadata file should be saved.")
 
 args = vars(parser.parse_args())    
