@@ -1,0 +1,4 @@
+# run: conda env create --file environment.yml
+name: whisper
+channels:
+  - conda-forge

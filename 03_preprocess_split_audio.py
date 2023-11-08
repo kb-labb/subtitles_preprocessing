@@ -13,7 +13,6 @@ import concurrent.futures
 import logging
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from faster_whisper import WhisperModel
-import whisper
 
 
 logging.basicConfig(level=logging.INFO,
@@ -53,7 +52,10 @@ parser.add_argument(
 args = parser.parse_args()
 output_dir = args.output
 
-
+print(torch.cuda.is_available())
+print(torch.cuda.device_count())
+print(torch.backends.cudnn.enabled)
+print(torch.backends.cudnn.version())
 parquet_files = [d for d in os.listdir(args.parquet_dir)]    
 sampling_rate = 16000   
 model_size = "large-v2"
@@ -114,7 +116,7 @@ def main():
         df_subs_unique = df_subs_unique[df_subs_unique._merge == 'both']
         df_subs_unique = df_subs_unique.copy()
         df_subs_unique["bucket_path"] = [bucket_path for program_paths_list in out_filenames for bucket_path in program_paths_list]
-        df_subs_unique['bucket_filename'] = df_subs_unique['bucket_filename'].str.slice_replace(0, 0, (df_subs_unique['program'][0]+"/")) 
+        df_subs_unique['bucket_filename'] = df_subs_unique['bucket_filename'].str.slice_replace(0, 0, (df_subs_unique['program'].iloc[0]+"/")) 
 
         result = df_subs_unique[['bucket_filename', 'text_timestamps_bucket']].rename(columns={'bucket_filename': 'file_name',
                                                                                                'text_timestamps_bucket':

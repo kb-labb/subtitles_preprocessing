@@ -1,0 +1,11 @@
+###conda install pytorch==1.13.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
+transformers==4.26.1
+pandas==2.0.2
+tqdm==4.64.1
+pysrt==1.1.2
+pyarrow==11.0.0
+datasets==2.14.4
+pydub==0.25.1
+tiktoken
+numba==0.57.1
+faster-whisper
