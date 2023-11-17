@@ -1,6 +1,7 @@
 import subprocess as sp
 import os
 from os import makedirs 
+import pysrt
 import argparse
 import time
 import csv
@@ -31,10 +32,41 @@ parser.add_argument(
 
 args = vars(parser.parse_args())
 
-channels = ["cmore/cmorefirst", "cmore/cmorehist", "cmore/cmoreseries", "cmore/cmorestars", "cmore/sfkanalen", \
-            "tv4/sjuan", "tv4/tv12", "tv4/tv4", "tv4/tv4fakta", "tv4/tv4film", \
-            "viasat/vfilmaction", "viasat/vfilmfamily", "viasat/vfilmhits", \
-            "viasat/vfilmpremiere", "viasat/vseries", "tv6/tv6", "tv8/tv8", "tv3/tv3"] 
+channels = ["cmore/sfkanalen"]
+#channels = ["cmore/cmorefirst", "cmore/cmorehist", "cmore/cmoreseries", "cmore/cmorestars", "cmore/sfkanalen", \
+            #"tv4/sjuan", "tv4/tv12", "tv4/tv4", "tv4/tv4fakta", "tv4/tv4film", \
+            #"viasat/vfilmaction", "viasat/vfilmfamily", "viasat/vfilmhits", \
+            #"viasat/vfilmpremiere", "viasat/vseries", "tv6/tv6", "tv8/tv8", "tv3/tv3"] 
+
+def fuse_subtitles(fn_in: str, fn_out) -> None:
+    subs = pysrt.open(fn_in)
+
+    mysubs = []
+    prev = None
+    start = -1
+    end = -1
+    index = 0
+    for s in subs:
+        if s.text != prev:
+            if prev is not None and end - start > 0:
+                ns = pysrt.srtitem.SubRipItem(
+                    start=start, end=end, text=prev, index=index
+                )
+                mysubs.append(ns)
+            start = s.start
+            end = s.end
+            prev = s.text
+            index += 1
+        elif s.text == prev:
+            end = s.end
+    if prev is not None and end - start > 0:
+        ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev)
+        mysubs.append(ns)
+
+    new_subs = pysrt.SubRipFile(mysubs)
+
+    new_subs.save(fn_out, encoding="utf-8")
+
 
 def check_and_extract(videofile, file, savedir, format):
     """ Extract .mp3 or .wav at 16Hz and .srt files from .mp4."""
@@ -50,6 +82,7 @@ def check_and_extract(videofile, file, savedir, format):
         if os.path.isfile(f"{(os.path.join(savedir, file))[:-4]}.srt") == False:
             # Save subtitle in srt format
             out = sp.run(['ffmpeg','-i', videofile, '-map', f's:{swe_idx[0]}', '-f','srt', f'{savedir}/{file[:-4]}/file.srt'], stdout=sp.PIPE, stderr=sp.PIPE, universal_newlines=True)
+            fuse_subtitles(f'{savedir}/{file[:-4]}/file.srt', f'{savedir}/{file[:-4]}/file.srt')
         else:
             pass
         if format == "mp3":
@@ -94,7 +127,7 @@ def main():
     for subdir, dirs, files in os.walk(rootdir):
         kanal = subdir.split("/")[8:10] #adjust to your path, should point to the channel/subchannel part of the directory (e.g. "cmore/cmorefirst")
         kanal = ("/").join(kanal)
-               
+
         #filter only channels with Swedish subtitles 
         if kanal in channels:
             for file in files:
@@ -105,6 +138,7 @@ def main():
                 if os.path.isfile(f"{video_savedir}/file.{format}") == False:
                     sv_subs, subs = check_and_extract(videofile_path, file, savedir, format)
                     create_statistics(kanal, file, sv_subs, subs, csv)
+                    
                     if sv_subs == 0:
                         os.rmdir(os.path.join(savedir, file[:-4]))
                 else:
