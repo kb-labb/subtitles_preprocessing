@@ -6,6 +6,7 @@ import time
 import pandas as pd
 import numpy as np
 import pdb
+import csv
 from multiprocessing import Pool
 from tqdm import tqdm
 from pydub import AudioSegment
@@ -48,19 +49,47 @@ parser.add_argument(
     default="subs_preprocessed",
     help="Name of directory where parquet file(s) are stored.",
 )
+parser.add_argument(
+    "--csv",
+    type=str,
+    default="language_info.csv",
+    help="Directory where csv file with info about subs will be saved.",
+)
 args = parser.parse_args()
 output_dir = args.output
+csv_file = args.csv
 
 parquet_files = [d for d in os.listdir(args.parquet_dir)]    
 sampling_rate = 16000   
 model_size = "large-v2"
 model = WhisperModel(model_size, device="cuda", compute_type="float16")
 
+
+def create_statistics(kanal, file, lang, lang_prob, csv_file):
+    """ Create a dataframe with info about available subtitles."""
+    save_dir = os.path.join(output_dir,kanal, csv_file)
+    exists = os.path.exists(save_dir)
+    with open(save_dir, mode='a', newline='') as save_file:
+            fieldnames = ['channel', 'filename', 'language', 'probability']
+            writer = csv.DictWriter(save_file, fieldnames=fieldnames)
+
+            # Write the header row
+            if not exists:
+                writer.writeheader()
+            writer.writerow({
+                    'channel': kanal,
+                    'filename': str(file)+".wav",
+                    'language': lang,
+                    'probability': lang_prob
+                    })
+
+
 # Save processed audio as desired format
 def save_processed_audio(audio_segment, output_path):
     audio_segment.export(output_path, format='wav')  # Saving as WAV format
 
 def split_audio(audio_df : pd.DataFrame):                    
+    remove_empty = []
     f = audio_df.iloc[0, audio_df.columns.get_loc("program")]
     audio_file_name = audio_df.iloc[0, audio_df.columns.get_loc("audio")]
     audio_path = f"{args.data}/{f}/{audio_file_name}"
@@ -68,6 +97,8 @@ def split_audio(audio_df : pd.DataFrame):
     os.makedirs(output_dir, exist_ok=True)
     filenames = []
     for i, row in audio_df.iterrows():
+        if (row["end_bucket"]-row["start_bucket"])<2000:
+            continue        
         audio_chunk = audio[row["start_bucket"] : row["end_bucket"]]
         os.makedirs(os.path.join(output_dir, row['program']), exist_ok=True)
         filename = f"{output_dir}/{row['program']}/{row['observation_nr']}.wav"
@@ -75,12 +106,26 @@ def split_audio(audio_df : pd.DataFrame):
         save_processed_audio(audio_chunk, filename)
         # language detection
         segments, info = model.transcribe(filename, vad_filter=True, beam_size=5)
-        if info.language == 'sv' and info.language_probability > 0.7:
+        if info.language == 'sv' and info.language_probability > 0.5:
             print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
             audio_chunk.export(filename, format="wav")
-            filenames.append(filename)
+            create_statistics(row['program'],row['observation_nr'], info.language, info.language_probability, csv_file)
+            filenames.append(filename)        
         else:
-            os.remove(filename)
+            # if swedish not detected, check previous block, if it is swedish, save the audio + the detected language
+            prev_filename = f"{output_dir}/{row['program']}/{row['observation_nr']-1}.wav"
+            if (os.path.exists(prev_filename)): 
+                prev_segments, prev_info = model.transcribe(prev_filename, vad_filter=True, beam_size=5)
+                if prev_info.language == 'sv':
+                    audio_chunk.export(filename, format="wav")
+                    filenames.append(filename)        
+                    create_statistics(row['program'],row['observation_nr'], info.language, info.language_probability, csv_file)
+                    print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+                else:
+                    remove_empty.append(filename)
+    for i in remove_empty:
+        print('removing !', i)
+        os.remove(i)
 
     return filenames
 
