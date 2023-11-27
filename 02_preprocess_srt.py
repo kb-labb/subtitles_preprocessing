@@ -57,13 +57,13 @@ for p in program_names:
         sub = pysrt.open(os.path.join(args.data, p, srt))
         sub_block_data = []
         for sub_block in sub:
-            sub_block.text = re.sub("<.*?>", "", sub_block.text)
+            # sub_block.text = re.sub("<.*?>", "", sub_block.text)  # sub_block.text_without_tag instead
             sub_block_data.append(
                 {
                     "program": p,
                     "start": sub_block.start,
                     "end": sub_block.end,
-                    "text": sub_block.text,
+                    "text": sub_block.text_without_tag,
                     "srt": srt,
                     "audio": audio,
                 }
