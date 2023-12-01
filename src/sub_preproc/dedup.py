@@ -22,7 +22,7 @@ def read_subs_and_fuse(in_data, out_data):
 
 
 def save_subs_as_hf_dataset(in_data, out_data):
-    file_names = glob.glob("{in_data}/**/file.srt", recursive=True)
+    file_names = glob.glob(f"{in_data}/**/file.srt", recursive=True)
 
     def my_gen():
         for fn in tqdm(file_names):

@@ -9,19 +9,19 @@ def fuse_subtitles(fn_in: str, fn_out) -> None:
     start = -1
     end = -1
     index = 0
-    for s in subs:
-        if s.text != prev:
+    for sub in subs:
+        if sub.text != prev:
             if prev is not None and end - start > 0:
                 ns = pysrt.srtitem.SubRipItem(
                     start=start, end=end, text=prev, index=index
                 )
                 mysubs.append(ns)
-            start = s.start
-            end = s.end
-            prev = s.text
+            start = sub.start
+            end = sub.end
+            prev = sub.text
             index += 1
-        elif s.text == prev:
-            end = s.end
+        elif sub.text == prev:
+            end = sub.end
     if prev is not None and end - start > 0:
         ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev)
         mysubs.append(ns)

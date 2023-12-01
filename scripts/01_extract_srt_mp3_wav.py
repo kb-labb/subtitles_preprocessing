@@ -13,13 +13,15 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--o",
+        "-o",
+        "--out_data",
         type=str,
         default="results",
         help="Directory where wav and srt files end up.",
     )
     parser.add_argument(
-        "--i",
+        "-i",
+        "--in_data",
         type=str,
         default="input",
         help="Directory containing mp4 files.",
@@ -143,7 +145,7 @@ def check_and_extract(videofile, in_file, savedir, sound_format):
     return (sv_subs, subtitles)
 
 
-def create_statistics(kanal, file, sv_subs, subs, csv_file):
+def create_statistics(channel, file, sv_subs, subs, csv_file):
     """Create a dataframe with info about available subtitles."""
 
     exists = os.path.exists(csv_file)
@@ -157,7 +159,7 @@ def create_statistics(kanal, file, sv_subs, subs, csv_file):
             writer.writeheader()
         writer.writerow(
             {
-                "channel": kanal,
+                "channel": channel,
                 "filename": file[:-4],
                 "swedish_subtitles": sv_subs,
                 "subtitles": subs,
@@ -168,19 +170,19 @@ def create_statistics(kanal, file, sv_subs, subs, csv_file):
 def main() -> None:
     args = get_args()
     print(args)
-    rootdir = args.i
-    savedir = args.o
+    rootdir = args.in_data
+    savedir = args.out_data
     format = args.sound_format
     csv = args.csv
 
-    for subdir, dirs, files in os.walk(rootdir):
-        kanal = subdir.split("/")[
+    for subdir, _, files in os.walk(rootdir):
+        channel = subdir.split("/")[
             8:10
         ]  # adjust to your path, should point to the channel/subchannel part of the directory (e.g. "cmore/cmorefirst")
-        kanal = ("/").join(kanal)
+        channel = ("/").join(channel)
 
         # filter only channels with Swedish subtitles
-        if kanal in CHANNELS:
+        if channel in CHANNELS:
             for file in files:
                 videofile_path = os.path.join(subdir, file)
                 if not os.path.exists(os.path.join(savedir, file[:-4])):
@@ -190,7 +192,7 @@ def main() -> None:
                     sv_subs, subs = check_and_extract(
                         videofile_path, file, savedir, format
                     )
-                    create_statistics(kanal, file, sv_subs, subs, csv)
+                    create_statistics(channel, file, sv_subs, subs, csv)
 
                     if sv_subs == 0:
                         os.rmdir(os.path.join(savedir, file[:-4]))
