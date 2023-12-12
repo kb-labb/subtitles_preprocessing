@@ -5,7 +5,7 @@ import os
 from tqdm import tqdm
 import glob
 import sys
-from src.utils import fuse_subtitles
+from src.utils import utils
 import re
 import shutil
 import time
@@ -27,7 +27,7 @@ def read_subs_and_fuse(in_data, out_data):
         x = fn.split("/")[-2]
         fn_out = f"{out_data}/{x}/file.srt"
         os.makedirs(f"{out_data}/{x}/", exist_ok=True)
-        fuse_subtitles(fn, fn_out)
+        utils(fn, fn_out)
 
 
 # %%
@@ -115,7 +115,7 @@ def stupid_dedup_deque(in_data, out_data):
     n = 4
     for fn in file_names:
         fn_out = "tmp.srt"
-        fuse_subtitles.fuse_subtitles(fn, fn_out)
+        utils.fuse_subtitles(fn, fn_out)
         subs = pysrt.open(fn_out)
 
         prev_candidate = deque([False] * n, maxlen=n)
@@ -179,7 +179,7 @@ def stupid_dedup_counting(in_data, out_data):
 
     for f_i, fn in enumerate(file_names):
         fn_out = "tmp.srt"
-        fuse_subtitles.fuse_subtitles(fn, fn_out)
+        utils.fuse_subtitles(fn, fn_out)
         subs = pysrt.open(fn_out)
 
         program_id = fn.split("/")[-2]
