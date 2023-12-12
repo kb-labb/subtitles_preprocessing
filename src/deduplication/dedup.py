@@ -106,7 +106,7 @@ def save_subs_as_txt(in_data, out_data, n_processes):
                     print(i, file=findex)
 
 
-def stupid_dedup_dequeu(in_data, out_data):
+def stupid_dedup_deque(in_data, out_data):
     dups = 0
     total = 0
     seen = set()
@@ -177,7 +177,7 @@ def stupid_dedup_counting(in_data, out_data):
 
     n = 4
 
-    for fn in file_names:
+    for f_i, fn in enumerate(file_names):
         fn_out = "tmp.srt"
         fuse_subtitles.fuse_subtitles(fn, fn_out)
         subs = pysrt.open(fn_out)
@@ -207,7 +207,8 @@ def stupid_dedup_counting(in_data, out_data):
             if duplicate > 0:
                 dups += 1
                 subs[s_i - n].text = "<duplicate>" + subs[s_i - n].text + "</duplicate>"
-            fout.append(subs[s_i - n])
+            if s_i - n >= 0:
+                fout.append(subs[s_i - n])
             total += 1
         # get the rest
         for s_i in range(n, 0, -1):
@@ -215,18 +216,63 @@ def stupid_dedup_counting(in_data, out_data):
                 dups += 1
                 subs[-s_i].text = "<duplicate>" + subs[-s_i].text + "</duplicate>"
             duplicate -= 1
-            fout.append(subs[-s_i].popleft())
+            if len(subs) > s_i:
+                fout.append(subs[-s_i])
 
         fout.save()
-        try:
-            print(f"{dups} / {total} ≃ {dups/total:.2%}", end="\r")
-        except ZeroDivisionError:
-            print("empty")
+        if f_i % 100 == 0:
+            try:
+                print(
+                    f"files done: {f_i:_}; {dups} / {total} ≃ {dups/total:.2%}",
+                    end="\r",
+                )
+            except ZeroDivisionError:
+                print("empty")
     try:
         print("\nFinally...")
-        print(f"{dups} / {total} ≃ {dups/total:.2%}", end="\n")
+        print(f"files done: {f_i:_}; {dups} / {total} ≃ {dups/total:.2%}", end="\n")
     except ZeroDivisionError:
         print("empty")
+
+
+def count_stuff(in_data):
+    file_names = glob.iglob(f"{in_data}/**/file.srt", recursive=True)
+
+    counts = {}
+    for f_i, fn in enumerate(file_names):
+        subs = pysrt.open(fn)
+        channel = "/".join(fn.split("/")[2:4])
+        if channel not in counts:
+            counts[channel] = {"total": 0, "dups": 0, "n-files": 0}
+        total = 0
+        dups = 0
+        for sub in subs:
+            if sub.text.startswith("<duplicate"):
+                dups += 1
+            total += 1
+        counts[channel]["total"] += total
+        counts[channel]["dups"] += dups
+        counts[channel]["n-files"] += 1
+        if f_i % 1_000 == 0:
+            for channel in counts:
+                dups = counts[channel]["dups"]
+                total = counts[channel]["total"]
+                n_files = counts[channel]["n-files"]
+                try:
+                    print(
+                        f"{channel:<20} {dups:_}, {total:_}, {dups / total:.2%}, {n_files:_}"
+                    )
+                except ZeroDivisionError:
+                    print(f"{channel:<20} {dups:_}, {total:_}, -, {n_files:_}")
+    print("Finally....")
+    for channel in counts:
+        dups = counts[channel]["dups"]
+        total = counts[channel]["total"]
+        n_files = counts[channel]["n-files"]
+        try:
+            print(f"{channel:<20} {dups:_}, {total:_}, {dups / total:.2%}, {n_files:_}")
+        except ZeroDivisionError:
+            print(f"{channel:<20} {dups:_}, {total:_}, -, {n_files:_}")
 
 
 # %%
@@ -311,7 +357,8 @@ def mark_duplicates_hf(dup_hf_fn, output_dir):
 if __name__ == "__main__":
     start = time.time()
     # stupid_dedup("/home/robkur/data/delat/srt_only/tv4/tv4/2023/10/", "test")
-    stupid_dedup_counting("/home/robkur/data/delat/srt_only/", "srt_only_dedup")
+    # stupid_dedup_counting("/home/robkur/data/delat/srt_only/", "srt_only_dedup")
+    count_stuff("srt_only_dedup")
     # save_subs_as_txt("/home/robkur/data/delat/srt_only/", "srt_only", mp.cpu_count())
     # save_subs_as_txt(
     #     "/home/robkur/data/delat/srt_only/tv4/tv4/2023/10/", "test", mp.cpu_count()
