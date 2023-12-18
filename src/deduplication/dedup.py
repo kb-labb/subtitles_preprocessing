@@ -9,6 +9,7 @@ from src.utils import utils
 import re
 import shutil
 import time
+import datasets
 from datasets import load_from_disk
 import multiprocessing as mp
 from functools import partial
@@ -34,7 +35,6 @@ def read_subs_and_fuse(in_data, out_data):
 
 
 # %%
-import datasets
 
 
 def save_subs_as_hf_dataset(in_data, out_data):

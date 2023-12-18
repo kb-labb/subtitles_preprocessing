@@ -4,10 +4,24 @@ import pandas as pd
 import datetime
 import glob
 from tqdm import tqdm
+from collections import deque
+from typing import Iterable
 
 HOUR = 3_600_000
 MINUTE = 60_000
 SECOND = 1_000
+
+
+class bcolors:
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
 
 
 def fuse_subtitles(fn_in: str, fn_out) -> None:
@@ -40,55 +54,87 @@ def fuse_subtitles(fn_in: str, fn_out) -> None:
     new_subs.save(fn_out, encoding="utf-8")
 
 
-def mark_live_subs(subs: pysrt.SubRipFile) -> None:
+def mark_live_subs(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
     start = 0
-    prev = None
     new_subs = pysrt.SubRipFile()
+    candidates = []
+    # subs = subs[2140:2170]
 
     if len(subs) == 0:
         return new_subs
 
-    def add_livesub(prev, start_time):
-        prev.text = "<live_sub>" + prev.text + "</live_sub>"
-        prev.start = start_time
-        prev.index = len(new_subs)
-        new_subs.append(prev)
+    def add_livesub(sub):
+        sub.text = "<live_sub>" + sub.text + "</live_sub>"
+        sub.index = len(new_subs)
+        new_subs.append(sub)
+        candidates.append(True)
 
-    def add_normal(prev):
-        prev.index = len(new_subs)
-        new_subs.append(prev)
+    def add_normal(sub):
+        sub.index = len(new_subs)
+        new_subs.append(sub)
+        candidates.append(False)
+
+    def is_livesub(sub, prev):
+        if prev is None:
+            return False
+        if sub.text_without_tags.startswith(prev.text_without_tags):
+            sub.text = "<live_candidate>" + sub.text
+            # prev.text = "<live_candidate>" + prev.text
+            return True
+        else:
+            return False
 
     n = 3
-    ls_candidate = 0
-    ls = 0
-    for si, sub in enumerate(subs):
-        if si >= 0:
-            prev = subs[si - 1]
-        if prev is None:
-            pass
-        elif sub.text_without_tags.startswith(prev.text_without_tags):
-            pass
-        else:
-            if si - start <= 1:
-                add_normal(prev)
-                ls_candidate = 0
-            else:
-                add_livesub(prev, start_time)
-                ls_candidate += 1
-            start = si
-            start_time = sub.start
-            if ls > 0:
-                subs[si - n].text = "<duplicate>" + subs[si - n].text + "</duplicate>"
-            if si - n >= 0:
-                fout.append(subs[si - n])
-    # add the last item as prev
-    prev = subs[-1]
-    si = len(subs)
-    if si - start <= 1:
-        add_normal(prev)
-    else:
-        add_livesub(prev, start_time)
+    context: deque = deque([], maxlen=2 * n + 1)
 
+    def is_really_livesub(context):
+        lc = tuple(context)
+        # prev_sum = sum(context[i] for i in range(n))
+        # foll_sum = sum(context[-i] for i in range(n, 0, -1))
+        m = n if len(context) == 2 * n + 1 else 2 * n + 1 - len(context)
+        prev_sum = sum(lc[:m])
+        foll_sum = sum(lc[m + 1 :])
+
+        return prev_sum + lc[m] + foll_sum > m
+
+    for j in range(0, len(subs)):
+        if len(context) > n:
+            really_livesub = is_really_livesub(context)
+            sub_i = subs[j - n - 1]
+            print(
+                j - n - 1,
+                sub_i.text_without_tags.replace("\n", " "),
+                context,
+                sum(context),
+                really_livesub,
+            )
+            if really_livesub:
+                add_livesub(sub_i)
+            else:
+                add_normal(sub_i)
+        sub = subs[j]
+        prev = subs[j - 1] if j > 0 else None
+        curr = is_livesub(sub, prev)
+        context.append(curr)
+
+    # get the last n-1
+    for j in range(len(subs) - n - 1, len(subs)):
+        really_livesub = context[n] + sum(context) > n
+        sub_i = subs[j]
+        if really_livesub:
+            add_livesub(sub_i)
+        else:
+            add_normal(sub_i)
+        context.popleft()
+
+    for i in range(0, len(new_subs)):
+        print(
+            i,
+            # subs[i].text_without_tags.replace("\n", " "),
+            new_subs[i].text_without_tags.replace("\n", " "),
+            "live_sub" in new_subs[i].text,
+            "live_candidate" in new_subs[i].text,
+        )
     return new_subs
 
 
@@ -100,7 +146,6 @@ def mark_live_subs_folder(in_data: str, out_data: str) -> None:
         year, month, day = date.split("-")
         out_path = "/".join([xa, channel_1, channel_2, year, month, day])
         os.makedirs(f"{out_data}/{out_path}/{program_id}", exist_ok=True)
-        fout = pysrt.SubRipFile(path=f"{out_data}/{out_path}/{program_id}/file.srt")
 
         new_subs = mark_live_subs(pysrt.open(fn))
         new_subs.save(path=f"{out_data}/{out_path}/{program_id}/file.srt")
@@ -216,7 +261,10 @@ if __name__ == "__main__":
     # print(ms_to_time(mytime))
     # print(get_stats_folder(folder_name))
 
-    folder_name = "/home/robkur/workspace/subtitles_preprocessing/srt_only_dedup/"
-    mark_live_subs_folder(
-        folder_name, "/home/robkur/workspace/subtitles_preprocessing/srt_only_livesubs/"
-    )
+    import sys
+
+    folder_name = sys.argv[1]
+    # mark_live_subs_folder(folder_name, sys.argv[2])
+    fn = sys.argv[1]
+    subs = pysrt.open(fn)
+    mark_live_subs(subs)
