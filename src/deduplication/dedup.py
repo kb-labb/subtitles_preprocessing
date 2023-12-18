@@ -27,7 +27,7 @@ def read_subs_and_fuse(in_data, out_data):
         x = fn.split("/")[-2]
         fn_out = f"{out_data}/{x}/file.srt"
         os.makedirs(f"{out_data}/{x}/", exist_ok=True)
-        utils(fn, fn_out)
+        utils.fuse_subtitles(fn, fn_out)
 
 
 # %%
