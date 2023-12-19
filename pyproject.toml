@@ -160,7 +160,7 @@ requires = ["setuptools>=43.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.black]
-line-length = 88
+line-length = 99
 # target-version = ['py37']
 include = '\.pyi?$'
 # 'extend-exclude' excludes files or directories in addition to the defaults
