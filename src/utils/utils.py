@@ -54,14 +54,14 @@ def fuse_subtitles(fn_in: str, fn_out) -> None:
     new_subs.save(fn_out, encoding="utf-8")
 
 
-def mark_live_subs(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
-    start = 0
+def mark_live_subs(subs: pysrt.SubRipFile, debug: bool = False) -> pysrt.SubRipFile:
     new_subs = pysrt.SubRipFile()
     candidates = []
-    # subs = subs[2140:2170]
+    n = 3
+    context: deque = deque([], maxlen=2 * n + 1)
 
-    if len(subs) == 0:
-        return new_subs
+    if len(subs) <= 2 * n:
+        return subs
 
     def add_livesub(sub):
         sub.text = "<live_sub>" + sub.text + "</live_sub>"
@@ -78,36 +78,54 @@ def mark_live_subs(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
         if prev is None:
             return False
         if sub.text_without_tags.startswith(prev.text_without_tags):
-            sub.text = "<live_candidate>" + sub.text
+            sub.text = "<live_candidate>" + sub.text + "</live_candidate>"
             # prev.text = "<live_candidate>" + prev.text
             return True
         else:
             return False
 
-    n = 3
-    context: deque = deque([], maxlen=2 * n + 1)
+    def is_really_livesub(context, debug=False):
+        # n_ = n if len(context) == 2 * n + 1 else 2 * n + 1 - len(context)
+        try:
+            if not context[n] and context[n + 1]:
+                context[n] = True
+        except IndexError:
+            pass
 
-    def is_really_livesub(context):
         lc = tuple(context)
         # prev_sum = sum(context[i] for i in range(n))
         # foll_sum = sum(context[-i] for i in range(n, 0, -1))
-        m = n if len(context) == 2 * n + 1 else 2 * n + 1 - len(context)
-        prev_sum = sum(lc[:m])
-        foll_sum = sum(lc[m + 1 :])
+        prev_sum = sum(lc[:n])
+        foll_sum = sum(lc[n + 1 :])
 
-        return prev_sum + lc[m] + foll_sum > m
+        if debug:
+            print(n, lc, prev_sum, foll_sum)
+
+        # if foll_sum >= n_ - 1 and lc[n_]:
+        #     return True
+        # if prev_sum >= n_ - 1 and lc[n_]:
+        #     return True
+        # if foll_sum >= n_:
+        #     return True
+        if prev_sum == n and not lc[n] and foll_sum == 0:
+            return False
+
+        return prev_sum + lc[n] + foll_sum >= n
 
     for j in range(0, len(subs)):
         if len(context) > n:
             really_livesub = is_really_livesub(context)
             sub_i = subs[j - n - 1]
-            print(
-                j - n - 1,
-                sub_i.text_without_tags.replace("\n", " "),
-                context,
-                sum(context),
-                really_livesub,
-            )
+            # if j - n - 1 > 400:
+            #     print(
+            #         j - n - 1,
+            #         sub_i.text_without_tags.replace("\n", " "),
+            #         context,
+            #         sum(context),
+            #         really_livesub,
+            #     )
+            #     is_really_livesub(context, True)
+
             if really_livesub:
                 add_livesub(sub_i)
             else:
@@ -119,22 +137,26 @@ def mark_live_subs(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
 
     # get the last n-1
     for j in range(len(subs) - n - 1, len(subs)):
-        really_livesub = context[n] + sum(context) > n
+        # really_livesub = context[n] + sum(context) > n
+        really_livesub = is_really_livesub(context)
         sub_i = subs[j]
+        # print(j, sub_i.text_without_tags.replace("\n", " "), really_livesub)
+        # is_really_livesub(context, True)
         if really_livesub:
             add_livesub(sub_i)
         else:
             add_normal(sub_i)
         context.popleft()
 
-    for i in range(0, len(new_subs)):
-        print(
-            i,
-            # subs[i].text_without_tags.replace("\n", " "),
-            new_subs[i].text_without_tags.replace("\n", " "),
-            "live_sub" in new_subs[i].text,
-            "live_candidate" in new_subs[i].text,
-        )
+    if debug:
+        for i in range(0, len(new_subs)):
+            print(
+                i,
+                # subs[i].text_without_tags.replace("\n", " "),
+                new_subs[i].text_without_tags.replace("\n", " "),
+                "live_sub" in new_subs[i].text,
+                "live_candidate" in new_subs[i].text,
+            )
     return new_subs
 
 
@@ -171,6 +193,8 @@ def get_stats_single(fn, df=None) -> pd.DataFrame:
     _, channel, subchannel, broadcast_date, from_time, to_time = fn.split("/")[
         -2
     ].split("_")
+    from_time = from_time[:6]
+    to_time = to_time[:6]
     broadcast_date = datetime.date.fromisoformat(broadcast_date)
     from_time = datetime.time.fromisoformat(
         ":".join([from_time[i - 1 : i + 1] for i in range(1, len(from_time), 2)])
@@ -187,7 +211,8 @@ def get_stats_single(fn, df=None) -> pd.DataFrame:
     for sub in pysrt.open(fn):
         subs_count += 1
         subs_duration += srt_time_to_ms(sub.duration)
-        if sub.text.startswith("<duplicate>"):
+        # if sub.text.startswith("<duplicate>"):
+        if "<duplicate>" in sub.text:
             duplicates_count += 1
             subs_duration_duplicate += srt_time_to_ms(sub.duration)
         elif sub.text.startswith("<live_sub>"):
@@ -264,7 +289,11 @@ if __name__ == "__main__":
     import sys
 
     folder_name = sys.argv[1]
+    stats = get_stats_folder(folder_name)
+    stats.to_csv("mystats.csv")
+    print(stats)
     # mark_live_subs_folder(folder_name, sys.argv[2])
-    fn = sys.argv[1]
-    subs = pysrt.open(fn)
-    mark_live_subs(subs)
+
+    # fn = sys.argv[1]
+    # subs = pysrt.open(fn)
+    # mark_live_subs(subs, True)
