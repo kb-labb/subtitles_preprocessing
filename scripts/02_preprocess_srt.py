@@ -22,8 +22,8 @@ def get_files(dir):
     """
     logging.info("Finding srts and wavs")
     dir = os.path.expanduser(dir)  # Deal with ~ in default args.data path
-    srt_files = glob.glob(dir + "/**/*.srt")
-    wav_files = glob.glob(dir + "/**/*.wav")
+    srt_files = glob.iglob(dir + "/**/*.srt", recursive=True)
+    wav_files = glob.iglob(dir + "/**/*.wav", recursive=True)
 
     files_dict = {}
 
@@ -108,7 +108,7 @@ def get_args():
     parser.add_argument(
         "--data",
         type=str,
-        default="~/data_network/delat/undertexter",
+        default="~/data_network/delat/srt_only",
         help="Directory containing subdirectories with audio and srt files.",
     )
 
