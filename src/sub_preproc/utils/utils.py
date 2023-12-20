@@ -273,8 +273,9 @@ def srt_to_json(fn_in: str, fn_out, data_source="tv_smbd") -> None:
     # XA_cmore_cmoreseries_2023-03-01_100000_110000
     _, channel, subchannel, year_month_day, from_time, to_time = fn_in.split("/")[-2].split("_")
     year, month, day = [int(x) for x in year_month_day.split("-")]
-    from_time = int(from_time)  # datetime.time.isoformat(from_time)
-    to_time = int(to_time)  # datetime.time.isoformat(to_time)
+    # first 6 digits only as some files/folders have additional .1.1 for some reason
+    from_time = int(from_time[:6])  # datetime.time.isoformat(from_time[:6])
+    to_time = int(to_time[:6])  # datetime.time.isoformat(to_time[:6])
 
     subs_dict = {
         "metadata": {
