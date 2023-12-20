@@ -1,3 +1,4 @@
+import json
 import os
 import pysrt
 import pandas as pd
@@ -5,7 +6,6 @@ import datetime
 import glob
 from tqdm import tqdm
 from collections import deque
-from typing import Iterable
 
 HOUR = 3_600_000
 MINUTE = 60_000
@@ -35,9 +35,7 @@ def fuse_subtitles(fn_in: str, fn_out) -> None:
     for s in subs:
         if s.text != prev:
             if prev is not None and end - start > 0:
-                ns = pysrt.srtitem.SubRipItem(
-                    start=start, end=end, text=prev, index=index
-                )
+                ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev, index=index)
                 mysubs.append(ns)
             start = s.start
             end = s.end
@@ -190,9 +188,7 @@ def get_stats_single(fn, df=None) -> pd.DataFrame:
                 "livesubs_count",
             ]
         )
-    _, channel, subchannel, broadcast_date, from_time, to_time = fn.split("/")[
-        -2
-    ].split("_")
+    _, channel, subchannel, broadcast_date, from_time, to_time = fn.split("/")[-2].split("_")
     from_time = from_time[:6]
     to_time = to_time[:6]
     broadcast_date = datetime.date.fromisoformat(broadcast_date)
@@ -244,20 +240,12 @@ def get_stats_folder(in_data: str) -> pd.DataFrame:
 
 
 def srt_time_to_ms(time: pysrt.SubRipTime) -> int:
-    return (
-        time.hours * HOUR
-        + time.minutes * MINUTE
-        + time.seconds * SECOND
-        + time.milliseconds
-    )
+    return time.hours * HOUR + time.minutes * MINUTE + time.seconds * SECOND + time.milliseconds
 
 
 def dt_time_to_ms(time: datetime.time) -> int:
     return (
-        time.hour * HOUR
-        + time.minute * MINUTE
-        + time.second * SECOND
-        + time.microsecond // SECOND
+        time.hour * HOUR + time.minute * MINUTE + time.second * SECOND + time.microsecond // SECOND
     )
 
 
@@ -270,6 +258,52 @@ def ms_to_time(ms: int) -> datetime.time:
     ms -= seconds * SECOND
     microseconds = ms * 1_000
     return datetime.time(hours, minutes, seconds, microseconds)
+
+
+def is_duplicate(text):
+    return "<duplicate>" in text
+
+
+def is_live(text):
+    return "<live_sub>" in text
+
+
+def srt_to_json(fn_in: str, fn_out, data_source="tv_smbd") -> None:
+    subs = pysrt.open(fn_in)
+    # XA_cmore_cmoreseries_2023-03-01_100000_110000
+    _, channel, subchannel, year_month_day, from_time, to_time = fn_in.split("/")[-2].split("_")
+    year, month, day = [int(x) for x in year_month_day.split("-")]
+    from_time = int(from_time)  # datetime.time.isoformat(from_time)
+    to_time = int(to_time)  # datetime.time.isoformat(to_time)
+
+    subs_dict = {
+        "metadata": {
+            "channel": channel,
+            "subchannel": subchannel,
+            "year": year,
+            "month": month,
+            "day": day,
+            "from_time": from_time,
+            "to_time": to_time,
+            "data_source": data_source,
+        },
+        "subs": [],
+    }
+
+    for sub in subs:
+        subs_dict["subs"].append(
+            {
+                "start": srt_time_to_ms(sub.start),
+                "end": srt_time_to_ms(sub.end),
+                "duration": srt_time_to_ms(sub.end) - srt_time_to_ms(sub.start),
+                "text": sub.text_without_tags,
+                "duplicate": is_duplicate(sub.text),
+                "live": is_live(sub.text),
+            }
+        )
+
+    with open(fn_out, "w") as fout:
+        json.dump(subs_dict, fout, indent=4)
 
 
 if __name__ == "__main__":

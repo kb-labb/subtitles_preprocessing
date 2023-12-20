@@ -8,9 +8,7 @@ from src.sub_preproc.utils import fuse_subtitles
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument(
         "-o",
@@ -189,9 +187,7 @@ def main() -> None:
                     makedirs(os.path.join(savedir, file[:-4]))
                 video_savedir = os.path.join(savedir, file[:-4])
                 if os.path.isfile(f"{video_savedir}/file.{format}") is False:
-                    sv_subs, subs = check_and_extract(
-                        videofile_path, file, savedir, format
-                    )
+                    sv_subs, subs = check_and_extract(videofile_path, file, savedir, format)
                     create_statistics(channel, file, sv_subs, subs, csv)
 
                     if sv_subs == 0:

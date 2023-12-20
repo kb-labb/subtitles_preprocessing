@@ -5,9 +5,7 @@ import argparse
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument(
         "--data",

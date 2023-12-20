@@ -114,9 +114,7 @@ def split_audio(audio_df: pd.DataFrame, data_folder, output_dir, model, csv_file
             filenames.append(filename)
         else:
             # if swedish not detected, check previous block, if it is swedish, save the audio + the detected language
-            prev_filename = (
-                f"{output_dir}/{row['program']}/{row['observation_nr']-1}.wav"
-            )
+            prev_filename = f"{output_dir}/{row['program']}/{row['observation_nr']-1}.wav"
             if os.path.exists(prev_filename):
                 prev_segments, prev_info = model.transcribe(
                     prev_filename, vad_filter=True, beam_size=5
@@ -161,9 +159,7 @@ def main() -> None:
         df_subs = pd.read_parquet(args.parquet_dir + "/" + parquet_file)
         df_subs["bucket_filename"] = df_subs["observation_nr"].astype(str) + ".wav"
         # Keep only first obs in each observation_nr group
-        df_subs_unique = df_subs.drop_duplicates(
-            ["observation_nr", "audio"], keep="first"
-        )
+        df_subs_unique = df_subs.drop_duplicates(["observation_nr", "audio"], keep="first")
         df_subs_unique = df_subs_unique.drop(df_subs_unique.tail(1).index)
 
         audio_groups = df_subs_unique[
@@ -179,13 +175,10 @@ def main() -> None:
         df_list = [audio_groups.get_group(df) for df in audio_groups.groups]
         logging.info("Splitting audio")
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            out_filenames = list(
-                tqdm(executor.map(split_audio, df_list), total=len(df_list))
-            )
+            out_filenames = list(tqdm(executor.map(split_audio, df_list), total=len(df_list)))
         # drop filenames that didn't pass language detection check by a left join
         out_filenames_new = [
-            x.replace(f"{output_dir}/{df_subs['program'][0]}/", "")
-            for x in out_filenames[0]
+            x.replace(f"{output_dir}/{df_subs['program'][0]}/", "") for x in out_filenames[0]
         ]
         out_filenames_df = pd.DataFrame({"bucket_filename": out_filenames_new})
         df_subs_unique = df_subs_unique.merge(
@@ -208,17 +201,13 @@ def main() -> None:
                 "bucket_filename"
             ].str.slice_replace(0, 0, (df_subs_unique["program"].iloc[0] + "/"))
 
-            result = df_subs_unique[
-                ["bucket_filename", "text_timestamps_bucket"]
-            ].rename(
+            result = df_subs_unique[["bucket_filename", "text_timestamps_bucket"]].rename(
                 columns={
                     "bucket_filename": "file_name",
                     "text_timestamps_bucket": "transcription",
                 }
             )
-            result.to_csv(
-                f"{output_dir}/{df_subs['program'][0]}/metadata.csv", index=False
-            )
+            result.to_csv(f"{output_dir}/{df_subs['program'][0]}/metadata.csv", index=False)
 
     logging.info("Done")
 

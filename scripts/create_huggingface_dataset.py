@@ -24,9 +24,7 @@ def main() -> None:
     df_validation = pd.read_csv(
         "/Users/rrj/svt/undertext-whisper-dataset/chunks/minio/chunks/validation.csv"
     )
-    df_test = pd.read_csv(
-        "/Users/rrj/svt/undertext-whisper-dataset/chunks/minio/chunks/test.csv"
-    )
+    df_test = pd.read_csv("/Users/rrj/svt/undertext-whisper-dataset/chunks/minio/chunks/test.csv")
 
     train_files, train_transcriptions = filter_files_by_size(df_train)
     validation_files, validation_transcriptions = filter_files_by_size(df_validation)

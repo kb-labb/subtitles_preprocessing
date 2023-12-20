@@ -6,12 +6,8 @@ import re
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "--metadata", type=str, default="metadata", help="Path to metadafile."
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--metadata", type=str, default="metadata", help="Path to metadafile.")
     parser.add_argument(
         "--output",
         type=str,

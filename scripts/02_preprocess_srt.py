@@ -46,12 +46,7 @@ def srt_time_to_ms(time):
     """
     Convert srt time to milliseconds.
     """
-    ms = (
-        time.hours * 3600000
-        + time.minutes * 60000
-        + time.seconds * 1000
-        + time.milliseconds
-    )
+    ms = time.hours * 3600000 + time.minutes * 60000 + time.seconds * 1000 + time.milliseconds
     return ms
 
 
@@ -131,9 +126,7 @@ def get_args():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("Starting")
     args = get_args()
     broadcasts = get_files(args.data)
@@ -208,9 +201,7 @@ if __name__ == "__main__":
     )["start_ms"].transform(min)
 
     # Round to nearest 20 ms (Whisper quantizes to nearest 20 ms for its timestamps)
-    df_groups["start_relative"] = (
-        np.round(df_groups["start_relative"] / 20) * 20
-    ) / 1000
+    df_groups["start_relative"] = (np.round(df_groups["start_relative"] / 20) * 20) / 1000
     df_groups["end_relative"] = (np.round(df_groups["end_relative"] / 20)) * 20 / 1000
 
     # start_bucket is the start_ms of the bucket in an observation_nr group
@@ -219,9 +210,9 @@ if __name__ == "__main__":
     ].transform(min)
 
     # end_bucket is the end_ms of the bucket in an observation_nr group
-    df_groups["end_bucket"] = df_groups.groupby(["observation_nr", "audio"])[
-        "end_ms"
-    ].transform(max)
+    df_groups["end_bucket"] = df_groups.groupby(["observation_nr", "audio"])["end_ms"].transform(
+        max
+    )
 
     def format_timestamp(timestamp):
         """
@@ -238,9 +229,9 @@ if __name__ == "__main__":
     )
 
     # Create a new column that joins the text_timestamps for each observation_nr group
-    df_groups["text_timestamps_bucket"] = df_groups.groupby(
-        ["observation_nr", "audio"]
-    )["text_timestamps"].transform(lambda x: " ".join(x))
+    df_groups["text_timestamps_bucket"] = df_groups.groupby(["observation_nr", "audio"])[
+        "text_timestamps"
+    ].transform(lambda x: " ".join(x))
 
     if not os.path.exists(os.path.join(args.output)):
         makedirs(os.path.join(args.output))
