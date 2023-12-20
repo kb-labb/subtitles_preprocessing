@@ -189,26 +189,29 @@ def wada_snr(filename):
     return snr
 
 
-parser = argparse.ArgumentParser()
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
 
-parser.add_argument(
-    "--data",
-    type=str,
-    default="results",
-    help="Directory containing subdirectories with audio and srt files.",
-)
+    parser.add_argument(
+        "--data",
+        type=str,
+        default="results",
+        help="Directory containing subdirectories with audio and srt files.",
+    )
 
-parser.add_argument(
-    "--output",
-    type=str,
-    default="snr.csv",
-    help="Name of output file",
-)
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="snr.csv",
+        help="Name of output file",
+    )
 
-args = parser.parse_args()
+    return parser.parse_args()
 
 
 def main():
+    args = get_args()
+    print(args)
     program_names = [d for d in os.listdir(args.data)]
     programs = []
     for p in program_names:
@@ -224,6 +227,5 @@ def main():
 
 if __name__ == "__main__":
     start = time.time()
-    print(args)
     main()
     print(time.time() - start)
