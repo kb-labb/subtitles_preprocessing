@@ -4,8 +4,6 @@ import pysrt
 import os
 from tqdm import tqdm
 import glob
-import sys
-from src.utils import utils
 import re
 import shutil
 import time
@@ -14,13 +12,13 @@ from datasets import load_from_disk
 import multiprocessing as mp
 from functools import partial
 from collections import deque
+from src.sub_preproc.utils.utils import fuse_subtitles
 
 MAX_LIST_SIZE = 100_000
 # gpt2 tokenzer eos-token
 NEWLINE = "<|endoftext|>"
 
 
-# %%
 def read_subs_and_fuse(in_data, out_data):
     file_names = glob.glob(f"{in_data}/**/file.srt", recursive=True)
 
@@ -28,13 +26,7 @@ def read_subs_and_fuse(in_data, out_data):
         x = fn.split("/")[-2]
         fn_out = f"{out_data}/{x}/file.srt"
         os.makedirs(f"{out_data}/{x}/", exist_ok=True)
-        utils.fuse_subtitles(fn, fn_out)
-
-
-# %%
-
-
-# %%
+        fuse_subtitles(fn, fn_out)
 
 
 def save_subs_as_hf_dataset(in_data, out_data):
@@ -57,7 +49,6 @@ def save_subs_as_hf_dataset(in_data, out_data):
     dataset.save_to_disk(out_data)
 
 
-# %%
 def read_write_subs(fn, fn_out):
     data = []
     index = []
@@ -80,8 +71,7 @@ def save_subs_as_txt(in_data, out_data, n_processes):
         os.makedirs(out_data, exist_ok=False)
     except FileExistsError:
         remove_dir = (
-            input("Directory exists. Do you want to remove it and continue?\ny/n\n")
-            == "y"
+            input("Directory exists. Do you want to remove it and continue?\ny/n\n") == "y"
         )
         if remove_dir:
             shutil.rmtree(out_data)
@@ -259,9 +249,7 @@ def count_stuff(in_data):
                 total = counts[channel]["total"]
                 n_files = counts[channel]["n-files"]
                 try:
-                    print(
-                        f"{channel:<20} {dups:_}, {total:_}, {dups / total:.2%}, {n_files:_}"
-                    )
+                    print(f"{channel:<20} {dups:_}, {total:_}, {dups / total:.2%}, {n_files:_}")
                 except ZeroDivisionError:
                     print(f"{channel:<20} {dups:_}, {total:_}, -, {n_files:_}")
     print("Finally....")
@@ -275,13 +263,11 @@ def count_stuff(in_data):
             print(f"{channel:<20} {dups:_}, {total:_}, -, {n_files:_}")
 
 
-# %%
 def my_iter(some_iterable):
     for item in some_iterable:
         yield item
 
 
-# %%
 def mark_duplicates(dup_fn, index_fn, data_fn):
     with open(dup_fn, encoding="utf-8", errors="replace") as dup_candidates, open(
         index_fn
@@ -352,7 +338,6 @@ def mark_duplicates_hf(dup_hf_fn, output_dir):
             fout.save()
 
 
-# %%
 # save_subs_as_txt("/home/robkur/data/delat/undertexter/", "hej")
 if __name__ == "__main__":
     start = time.time()
