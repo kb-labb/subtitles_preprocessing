@@ -291,7 +291,21 @@ def srt_to_json(fn_in: str, fn_out, data_source="tv_smbd") -> None:
         "subs": [],
     }
 
+    end = 0
     for sub in subs:
+        if end != srt_time_to_ms(sub.start):
+            subs_dict["subs"].append(
+                {
+                    "start": end,
+                    "end": srt_time_to_ms(sub.start),
+                    "duration": srt_time_to_ms(sub.start) - end,
+                    "text": "<|silence|>",
+                    "duplicate": False,
+                    "live": False,
+                }
+            )
+
+        end = srt_time_to_ms(sub.end)
         subs_dict["subs"].append(
             {
                 "start": srt_time_to_ms(sub.start),
@@ -305,6 +319,8 @@ def srt_to_json(fn_in: str, fn_out, data_source="tv_smbd") -> None:
 
     with open(fn_out, "w") as fout:
         json.dump(subs_dict, fout, indent=4)
+
+    return subs_dict
 
 
 if __name__ == "__main__":
