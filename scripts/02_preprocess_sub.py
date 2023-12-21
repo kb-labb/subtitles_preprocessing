@@ -13,7 +13,7 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def make_chunks(subs, min_threshold=10_000, max_threshold=30_000):
+def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1, end_index=1):
     chunks = []
     chunk = []
     total_length = 0
@@ -33,7 +33,7 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000):
                 parts.append(part)
         return "".join(parts)
 
-    for sub in subs["subs"][1:-1]:
+    for sub in subs["subs"][start_index:-end_index]:
         sub = sub.copy()
         # add to chunk if total chunk length < 30s
         if sub["live"] or sub["duplicate"]:
@@ -107,6 +107,9 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000):
                     )
                     chunk = []
                     total_length = 0
+
+            if len(chunk) == 0:
+                chunk_start = sub["start"]
 
             chunk_end = sub["end"]
             sub["start"] = total_length
