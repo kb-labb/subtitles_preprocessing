@@ -30,7 +30,7 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000):
         for sub in subs:
             if sub["text"] != "<|silence|>":
                 part = "".join((whisper_time(sub["start"]), sub["text"], whisper_time(sub["end"])))
-                part.append(part)
+                parts.append(part)
         return "".join(parts)
 
     for sub in subs["subs"][1:-1]:
