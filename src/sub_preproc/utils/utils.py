@@ -268,7 +268,7 @@ def is_live(text):
     return "<live_sub>" in text
 
 
-def srt_to_json(fn_in: str, fn_out, data_source="tv_smbd") -> None:
+def srt_to_dict(fn_in: str, data_source="tv_smbd") -> dict:
     subs = pysrt.open(fn_in)
     # XA_cmore_cmoreseries_2023-03-01_100000_110000
     _, channel, subchannel, year_month_day, from_time, to_time = fn_in.split("/")[-2].split("_")
@@ -316,9 +316,6 @@ def srt_to_json(fn_in: str, fn_out, data_source="tv_smbd") -> None:
                 "live": is_live(sub.text),
             }
         )
-
-    with open(fn_out, "w") as fout:
-        json.dump(subs_dict, fout, indent=4)
 
     return subs_dict
 
