@@ -1,8 +1,9 @@
+import pysrt
 import glob
 import json
 import argparse
 from tqdm import tqdm
-from sub_preproc.utils.utils import srt_to_dict
+from sub_preproc.utils.utils import subrip_to_dict, decode_program_id
 
 
 def get_args() -> argparse.Namespace:
@@ -137,7 +138,7 @@ def main():
 
     for fn in tqdm(glob.iglob(f"{args.folder}/**/file.srt", recursive=True)):
         path = "/".join(fn.split("/")[:-1])
-        subs_dict = srt_to_dict(fn)
+        subs_dict = subrip_to_dict(pysrt.open(fn), *decode_program_id(fn.split("/")[-2]))
         subs_dict = make_chunks(subs_dict)
         with open(f"{path}/file.json", "w") as fout:
             json.dump(subs_dict, fout, indent=4)

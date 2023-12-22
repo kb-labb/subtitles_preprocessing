@@ -6,6 +6,7 @@ import datetime
 import glob
 from tqdm import tqdm
 from collections import deque
+from typing import Tuple
 
 HOUR = 3_600_000
 MINUTE = 60_000
@@ -24,8 +25,17 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
+def decode_program_id(program_id: str) -> Tuple[str]:
+    _, channel, subchannel, year_month_day, from_time, to_time = program_id.split("_")
+    year, month, day = [x for x in year_month_day.split("-")]
+    # first 6 digits only as some files/folders have additional .1.1 for some reason
+    from_time = from_time[:6]  # datetime.time.isoformat(from_time[:6])
+    to_time = to_time[:6]  # datetime.time.isoformat(to_time[:6])
+    return channel, subchannel, year, month, day, from_time, to_time
+
+
 def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
-    mysubs = []
+    mysubs = pysrt.SubRipFile()
     prev = None
     start = -1
     end = -1
@@ -33,7 +43,7 @@ def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
     for s in subs:
         if s.text != prev:
             if prev is not None and end - start > 0:
-                ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev, index=index)
+                ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev, index=len(mysubs))
                 mysubs.append(ns)
             start = s.start
             end = s.end
@@ -42,10 +52,10 @@ def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
         elif s.text == prev:
             end = s.end
     if prev is not None and end - start > 0:
-        ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev)
+        ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev, index=len(mysubs))
         mysubs.append(ns)
 
-    return pysrt.SubRipFile(mysubs)
+    return mysubs
 
     # new_subs.save(fn_out, encoding="utf-8")
 
@@ -160,9 +170,8 @@ def mark_live_subs_folder(in_data: str, out_data: str) -> None:
     file_names = glob.iglob(f"{in_data}/**/file.srt", recursive=True)
     for fn in tqdm(file_names):
         program_id = fn.split("/")[-2]
-        xa, channel_1, channel_2, date = program_id.split("_")[:4]
-        year, month, day = date.split("-")
-        out_path = "/".join([xa, channel_1, channel_2, year, month, day])
+        channel, subchannel, year, month, day, from_time, to_time = decode_program_id(program_id)
+        out_path = "/".join([channel, subchannel, year, month, day])
         os.makedirs(f"{out_data}/{out_path}/{program_id}", exist_ok=True)
 
         new_subs = mark_live_subs(pysrt.open(fn))
@@ -186,10 +195,12 @@ def get_stats_single(fn, df=None) -> pd.DataFrame:
                 "livesubs_count",
             ]
         )
-    _, channel, subchannel, broadcast_date, from_time, to_time = fn.split("/")[-2].split("_")
+
+    program_id = fn.split("/")[-2]
+    channel, subchannel, year, month, day, from_time, to_time = decode_program_id(program_id)
     from_time = from_time[:6]
     to_time = to_time[:6]
-    broadcast_date = datetime.date.fromisoformat(broadcast_date)
+    broadcast_date = datetime.date.fromisoformat(year, month, day)
     from_time = datetime.time.fromisoformat(
         ":".join([from_time[i - 1 : i + 1] for i in range(1, len(from_time), 2)])
     )
@@ -266,14 +277,23 @@ def is_live(text):
     return "<live_sub>" in text
 
 
-def srt_to_dict(fn_in: str, data_source="tv_smbd") -> dict:
-    subs = pysrt.open(fn_in)
+def subrip_to_dict(
+    subs: pysrt.SubRipFile,
+    channel: str,
+    subchannel: str,
+    year: str,
+    month: str,
+    day: str,
+    from_time: str,
+    to_time: str,
+    data_source: str = "tv_smbd",
+) -> dict:
     # XA_cmore_cmoreseries_2023-03-01_100000_110000
-    _, channel, subchannel, year_month_day, from_time, to_time = fn_in.split("/")[-2].split("_")
-    year, month, day = [int(x) for x in year_month_day.split("-")]
-    # first 6 digits only as some files/folders have additional .1.1 for some reason
-    from_time = int(from_time[:6])  # datetime.time.isoformat(from_time[:6])
-    to_time = int(to_time[:6])  # datetime.time.isoformat(to_time[:6])
+    year = int(year)
+    month = int(month)
+    day = int(day)
+    from_time = int(from_time)
+    to_time = int(to_time)
 
     subs_dict = {
         "metadata": {
