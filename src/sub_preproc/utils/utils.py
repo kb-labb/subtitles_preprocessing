@@ -24,9 +24,7 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
-def fuse_subtitles(fn_in: str, fn_out) -> None:
-    subs = pysrt.open(fn_in)
-
+def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
     mysubs = []
     prev = None
     start = -1
@@ -47,9 +45,9 @@ def fuse_subtitles(fn_in: str, fn_out) -> None:
         ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev)
         mysubs.append(ns)
 
-    new_subs = pysrt.SubRipFile(mysubs)
+    return pysrt.SubRipFile(mysubs)
 
-    new_subs.save(fn_out, encoding="utf-8")
+    # new_subs.save(fn_out, encoding="utf-8")
 
 
 def mark_live_subs(subs: pysrt.SubRipFile, debug: bool = False) -> pysrt.SubRipFile:

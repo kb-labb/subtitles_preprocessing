@@ -5,6 +5,7 @@ from src.sub_preproc.utils.utils import fuse_subtitles
 import argparse
 import time
 import csv
+import pysrt
 
 CHANNELS = [
     "cmore/cmorefirst",
@@ -97,7 +98,9 @@ def check_and_extract(videofile, file, savedir):
                 stderr=sp.PIPE,
                 universal_newlines=True,
             )
-            fuse_subtitles(f"{savedir}/file.srt", f"{savedir}/file.srt")
+            # fuse_subtitles(f"{savedir}/file.srt", f"{savedir}/file.srt")
+            fused_subs = fuse_subtitles(pysrt.open(f"{savedir}/file.srt"))
+            fused_subs.save(path=f"{savedir}/file.srt")
         else:
             pass
     else:
