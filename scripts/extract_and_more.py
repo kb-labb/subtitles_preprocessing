@@ -189,7 +189,7 @@ def main():
                 extract_subs(fn, swe_sub_id, savedir)
                 subs = pysrt.open(os.path.join(savedir, "file.srt"))
                 fused = utils.fuse_subtitles(subs)
-                dup_marked = dup_marker_single(fused, seen)
+                dup_marked, seen = dup_marker_single(fused, seen)
                 live_subbed = utils.mark_live_subs(dup_marked)
                 subs_dict = utils.subrip_to_dict(
                     live_subbed, channel, subchannel, year, month, day, from_time, to_time
