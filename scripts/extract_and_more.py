@@ -1,14 +1,20 @@
+import pickle
 import json
 import glob
 import pysrt
 import os
 import argparse
+import numpy as np
 import subprocess as sp
+import soundfile as sf
+import librosa
 import sub_preproc.utils.utils as utils
 from sub_preproc.dedup import dup_marker_single
 from typing import Optional
 from tqdm import tqdm
 from sub_preproc.utils.make_chunks import make_chunks
+from faster_whisper import WhisperModel
+from typing import Iterable, Dict, Any, Tuple
 
 CHANNELS = [
     "cmore/cmorefirst",
@@ -33,10 +39,76 @@ CHANNELS = [
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--in_data")
-    parser.add_argument("--out_data")
+    parser.add_argument("--in_data", type=str, required=True)
+    parser.add_argument("--out_data", type=str, required=True)
+    parser.add_argument("--sound_format", type=str, default="wav")
+    parser.add_argument("--sample_rate", type=int, default=16_000)
 
     return parser.parse_args()
+
+
+def extract_sound(input_file: str, output_path: str, sound_format: str) -> None:
+    if sound_format == "mp3":
+        # Save sound in mp3 format
+        sp.run(
+            [
+                "ffmpeg",
+                "-i",
+                input_file,
+                "-acodec",
+                "libmp3lame",
+                f"{output_path}/file.mp3",
+            ]
+        )
+    # Save sound in wav format
+    elif sound_format == "wav":
+        sp.run(
+            [
+                "ffmpeg",
+                "-i",
+                input_file,
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                f"{output_path}/file.wav",
+            ]
+        )
+
+
+def read_audio(sound_file: str, target_sample_rate) -> np.ndarray:
+    audio, sample_rate = sf.read(sound_file)
+    audio = librosa.to_mono(audio)
+    audio = librosa.resample(
+        audio,
+        orig_sr=sample_rate,
+        target_sr=target_sample_rate,
+        res_type="kaiser_best",
+    )
+    return audio
+
+
+def get_sv_sound_chunks(
+    chunks, audio, sample_rate, model
+) -> Iterable[Tuple[Dict[str, Any], np.ndarray]]:
+    for chunk in chunks:
+        start = chunk["start"]
+        end = chunk["end"]
+        chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
+        _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
+        if info.language == "sv" and info.language_probability > 0.5:
+            yield chunk, chunk_audio
+
+
+def precheck_for_chunks(sub_dict) -> bool:
+    for chunk in sub_dict["chunks"]:
+        # if it's a silent chunk then there will be only one sub
+        # if it is a non-silent chunk with one sub then check if it isn't silence
+        if len(chunk["subs"]) > 1 or chunk["subs"][0]["text"] != "<|silence|>":
+            return True
+    return False
 
 
 def check_for_sv_subs(videofile: str) -> Optional[int]:
@@ -93,11 +165,14 @@ def main():
     args = get_args()
     print(args)
 
+    model_size = "large-v2"
+    model = WhisperModel(model_size, device="cuda", compute_type="float16")
+
     seen = set()
 
+    saved_filenames = []
     for channel_plus in tqdm(CHANNELS):
         filenames = glob.iglob(f"{args.in_data}/{channel_plus}/**/*mp4", recursive=True)
-        saved_filenames = []
         for fn in tqdm(filenames):
             program_id = fn.split("/")[-2]
             channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(
@@ -123,19 +198,43 @@ def main():
                 with open(os.path.join(savedir, "file.json"), "w") as fout:
                     json.dump(subs_chunks_dict, fout)
                 saved_filenames.append(os.path.join(savedir, "file.json"))
-                # TODO
                 # if there are chunks
-                # extract audio
-                # read audio into ndarray as faster_whisper likes it
-                # from faster_whisper.audio import decode_audio
-                # or with librosa or soundfile as huggingface does it
-                # check chunks based on frames-array (sec * sampling_rate)
-                # export sub-array into wav if necessary
-                # write with soundfile
-                # problem: loss of quality but not necessary for training anyway
+                if precheck_for_chunks(subs_chunks_dict):
+                    # create chunks-dir
+                    os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
+                    # extract audio
+                    extract_sound(
+                        input_file=fn, output_path=savedir, sound_format=args.sound_format
+                    )
+                    # read audio into ndarray as faster_whisper likes it
+                    # from faster_whisper.audio import decode_audio
+                    # or with librosa or soundfile as huggingface does it
+                    audio = read_audio(
+                        os.path.join(savedir, f"file.{args.sound_format}"),
+                        target_sample_rate=args.sample_rate,
+                    )
+                    # check chunks based on frames-array (sec * sampling_rate)
+                    # export sub-array into wav if necessary
+                    for i, (chunk, chunk_audio) in enumerate(
+                        get_sv_sound_chunks(
+                            subs_chunks_dict["chunks"], audio, args.sample_rate, model
+                        )
+                    ):
+                        # write with soundfile
+                        with sf.SoundFile(
+                            os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
+                            "w",
+                            args.sample_rate,
+                            channels=1,
+                        ) as fout:
+                            fout.write(chunk_audio)
+                        with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
+                            print(chunk["text_whisper"], file=fout)
     with open(os.path.join(args.out_data, "sub_and_chunk_dicts.txt"), "w") as fout:
         for fn in saved_filenames:
             print(fn, file=fout)
+    with open("seen_subs.pickle", "wb") as fout:
+        pickle.dump(seen, fout)
 
 
 if __name__ == "__main__":

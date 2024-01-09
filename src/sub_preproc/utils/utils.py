@@ -25,7 +25,7 @@ class bcolors:
     UNDERLINE = "\033[4m"
 
 
-def decode_program_id(program_id: str) -> Tuple[str]:
+def decode_program_id(program_id: str) -> Tuple[str, str, str, str, str, str, str]:
     _, channel, subchannel, year_month_day, from_time, to_time = program_id.split("_")
     year, month, day = [x for x in year_month_day.split("-")]
     # first 6 digits only as some files/folders have additional .1.1 for some reason
