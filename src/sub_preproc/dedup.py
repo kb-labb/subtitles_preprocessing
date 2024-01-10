@@ -1,10 +1,9 @@
-# %%
+import glob
+import time
+from typing import Set, Tuple
 
 import pysrt
 from tqdm import tqdm
-import glob
-import time
-from typing import Tuple, Set
 
 
 def dup_marker_single(
@@ -39,7 +38,7 @@ def dup_marker_single(
 
 
 def mark_duplicates(in_data: str, lookback: int = 4) -> None:
-    seen = Set()
+    seen: Set[int] = set()
     file_names = glob.iglob(f"{in_data}/**/file.srt", recursive=True)
 
     for fn in tqdm(file_names):

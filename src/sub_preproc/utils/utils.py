@@ -1,12 +1,12 @@
-import json
-import os
-import pysrt
-import pandas as pd
 import datetime
 import glob
-from tqdm import tqdm
+import os
 from collections import deque
-from typing import Tuple
+from typing import Tuple, Optional
+
+import pandas as pd
+import pysrt
+from tqdm import tqdm
 
 HOUR = 3_600_000
 MINUTE = 60_000
@@ -43,7 +43,7 @@ def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
     for s in subs:
         if s.text != prev:
             if prev is not None and end - start > 0:
-                ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev, index=len(mysubs))
+                ns = pysrt.SubRipItem(start=start, end=end, text=prev, index=len(mysubs))
                 mysubs.append(ns)
             start = s.start
             end = s.end
@@ -52,7 +52,7 @@ def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
         elif s.text == prev:
             end = s.end
     if prev is not None and end - start > 0:
-        ns = pysrt.srtitem.SubRipItem(start=start, end=end, text=prev, index=len(mysubs))
+        ns = pysrt.SubRipItem(start=start, end=end, text=prev, index=len(mysubs))
         mysubs.append(ns)
 
     return mysubs
@@ -240,7 +240,7 @@ def get_stats_single(fn, df=None) -> pd.DataFrame:
     return df
 
 
-def get_stats_folder(in_data: str) -> pd.DataFrame:
+def get_stats_folder(in_data: str) -> Optional[pd.DataFrame]:
     file_names = glob.iglob(f"{in_data}/**/file.srt", recursive=True)
     df = None
     for fn in tqdm(file_names):

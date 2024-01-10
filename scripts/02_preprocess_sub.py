@@ -1,10 +1,12 @@
-import pysrt
+import argparse
 import glob
 import json
-import argparse
+
+import pysrt
 from tqdm import tqdm
-from sub_preproc.utils.utils import subrip_to_dict, decode_program_id
+
 from sub_preproc.utils.make_chunks import make_chunks
+from sub_preproc.utils.utils import decode_program_id, subrip_to_dict
 
 
 def get_args() -> argparse.Namespace:
