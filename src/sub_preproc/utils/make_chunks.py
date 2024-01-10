@@ -1,3 +1,6 @@
+from sub_preproc.utils.utils import SILENCE
+
+
 def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1, end_index=1):
     chunks = []
     chunk = []
@@ -13,10 +16,13 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
 
         parts = []
         for sub in subs:
-            if sub["text"] != "<|silence|>":
+            if sub["text"] != SILENCE:
                 part = "".join((whisper_time(sub["start"]), sub["text"], whisper_time(sub["end"])))
                 parts.append(part)
         return "".join(parts)
+
+    def subs_to_raw_text(subs):
+        return " ".join([sub["text"] for sub in subs if sub["text"] != SILENCE])
 
     for sub in subs["subs"][start_index:-end_index]:
         sub = sub.copy()
@@ -36,7 +42,7 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
             total_length = 0
         else:
             if sub["duration"] + total_length > max_threshold:
-                if sub["text"] == "<|silence|>":
+                if sub["text"] == SILENCE:
                     filler_silence = sub.copy()
                     filler_silence["duration"] = max_threshold - total_length
                     filler_silence["start"] = total_length
@@ -50,6 +56,7 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
                             "duration": chunk_end - chunk_start,
                             "subs": chunk,
                             "text_whisper": subs_to_whisper(chunk),
+                            "text": subs_to_raw_text(chunk),
                         }
                     )
                     chunk = []
@@ -67,13 +74,14 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
                                 "duration": chunk_end - chunk_start,
                                 "subs": [
                                     {
-                                        "text": "<|silence|>",
+                                        "text": SILENCE,
                                         "start": 0,
                                         "end": max_threshold,
                                         "duration": max_threshold,
                                     }
                                 ],
                                 "text_whisper": subs_to_whisper(chunk),
+                                "text": subs_to_raw_text(chunk),
                             }
                         )
                         # chunk = []
@@ -88,6 +96,7 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
                             "duration": chunk_end - chunk_start,
                             "subs": chunk,
                             "text_whisper": subs_to_whisper(chunk),
+                            "text": subs_to_raw_text(chunk),
                         }
                     )
                     chunk = []
@@ -110,6 +119,7 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
                 "duration": chunk_end - chunk_start,
                 "subs": chunk,
                 "text_whisper": subs_to_whisper(chunk),
+                "text": subs_to_raw_text(chunk),
             }
         )
 

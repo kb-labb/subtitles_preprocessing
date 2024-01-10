@@ -12,6 +12,8 @@ HOUR = 3_600_000
 MINUTE = 60_000
 SECOND = 1_000
 
+SILENCE = "<|silence|>"
+
 
 class bcolors:
     HEADER = "\033[95m"
@@ -317,7 +319,7 @@ def subrip_to_dict(
                     "start": end,
                     "end": srt_time_to_ms(sub.start),
                     "duration": srt_time_to_ms(sub.start) - end,
-                    "text": "<|silence|>",
+                    "text": SILENCE,
                     "duplicate": False,
                     "live": False,
                 }
