@@ -1,20 +1,23 @@
-import pickle
-import json
-import glob
-import pysrt
-import os
 import argparse
-import numpy as np
+import csv
+import glob
+import json
+import os
+import pickle
 import subprocess as sp
-import soundfile as sf
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
 import librosa
+import numpy as np
+import pysrt
+import soundfile as sf
+from faster_whisper import WhisperModel
+from tqdm import tqdm
+
 import sub_preproc.utils.utils as utils
 from sub_preproc.dedup import dup_marker_single
-from typing import Optional
-from tqdm import tqdm
 from sub_preproc.utils.make_chunks import make_chunks
-from faster_whisper import WhisperModel
-from typing import Iterable, Dict, Any, Tuple
+from sub_preproc.utils.utils import SILENCE
 
 CHANNELS = [
     "cmore/cmorefirst",
@@ -106,7 +109,7 @@ def precheck_for_chunks(sub_dict) -> bool:
     for chunk in sub_dict["chunks"]:
         # if it's a silent chunk then there will be only one sub
         # if it is a non-silent chunk with one sub then check if it isn't silence
-        if len(chunk["subs"]) > 1 or chunk["subs"][0]["text"] != "<|silence|>":
+        if len(chunk["subs"]) > 1 or chunk["subs"][0]["text"] != SILENCE:
             return True
     return False
 
@@ -168,6 +171,8 @@ def main():
     model_size = "large-v2"
     model = WhisperModel(model_size, device="cuda", compute_type="float16")
 
+    metadata: List[Tuple[str, str, str]] = [("file_name", "text", "text_whisper")]
+
     seen = set()
 
     saved_filenames = []
@@ -198,29 +203,21 @@ def main():
                 with open(os.path.join(savedir, "file.json"), "w") as fout:
                     json.dump(subs_chunks_dict, fout)
                 saved_filenames.append(os.path.join(savedir, "file.json"))
-                # if there are chunks
+                # audio
                 if precheck_for_chunks(subs_chunks_dict):
-                    # create chunks-dir
                     os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
-                    # extract audio
                     extract_sound(
                         input_file=fn, output_path=savedir, sound_format=args.sound_format
                     )
-                    # read audio into ndarray as faster_whisper likes it
-                    # from faster_whisper.audio import decode_audio
-                    # or with librosa or soundfile as huggingface does it
                     audio = read_audio(
                         os.path.join(savedir, f"file.{args.sound_format}"),
                         target_sample_rate=args.sample_rate,
                     )
-                    # check chunks based on frames-array (sec * sampling_rate)
-                    # export sub-array into wav if necessary
                     for i, (chunk, chunk_audio) in enumerate(
                         get_sv_sound_chunks(
                             subs_chunks_dict["chunks"], audio, args.sample_rate, model
                         )
                     ):
-                        # write with soundfile
                         with sf.SoundFile(
                             os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
                             "w",
@@ -230,11 +227,21 @@ def main():
                             fout.write(chunk_audio)
                         with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
                             print(chunk["text_whisper"], file=fout)
+                        metadata.append(
+                            (
+                                os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
+                                chunk["text"],
+                                chunk["text_whisper"],
+                            )
+                        )
     with open(os.path.join(args.out_data, "sub_and_chunk_dicts.txt"), "w") as fout:
         for fn in saved_filenames:
             print(fn, file=fout)
-    with open("seen_subs.pickle", "wb") as fout:
+    with open(os.path.join(args.out_data, "seen_subs.pickle"), "wb") as fout:
         pickle.dump(seen, fout)
+    with open(os.path.join(args.out_data, "metadata.csv"), "w", newline="") as fout:
+        writer = csv.writer(fout)
+        writer.writerows(metadata)
 
 
 if __name__ == "__main__":
