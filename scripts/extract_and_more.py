@@ -1,10 +1,14 @@
 import argparse
 import csv
 import glob
+import itertools as it
 import json
+import multiprocessing as mp
 import os
 import pickle
 import subprocess as sp
+import time
+from functools import partial
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import librosa
@@ -51,9 +55,11 @@ def get_args() -> argparse.Namespace:
 
 
 def extract_sound(input_file: str, output_path: str, sound_format: str) -> None:
+    if os.path.isfile(f"{(os.path.join(output_path))}/file.{sound_format}"):
+        return
     if sound_format == "mp3":
         # Save sound in mp3 format
-        sp.run(
+        _ = sp.run(
             [
                 "ffmpeg",
                 "-i",
@@ -61,11 +67,14 @@ def extract_sound(input_file: str, output_path: str, sound_format: str) -> None:
                 "-acodec",
                 "libmp3lame",
                 f"{output_path}/file.mp3",
-            ]
+            ],
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+            text=True,
         )
     # Save sound in wav format
     elif sound_format == "wav":
-        sp.run(
+        _ = sp.run(
             [
                 "ffmpeg",
                 "-i",
@@ -77,7 +86,10 @@ def extract_sound(input_file: str, output_path: str, sound_format: str) -> None:
                 "-ar",
                 "16000",
                 f"{output_path}/file.wav",
-            ]
+            ],
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+            text=True,
         )
 
 
@@ -90,6 +102,7 @@ def read_audio(sound_file: str, target_sample_rate) -> np.ndarray:
         target_sr=target_sample_rate,
         res_type="kaiser_best",
     )
+    audio = np.asarray(audio, dtype=np.float32)
     return audio
 
 
@@ -100,9 +113,12 @@ def get_sv_sound_chunks(
         start = chunk["start"]
         end = chunk["end"]
         chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
-        _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
-        if info.language == "sv" and info.language_probability > 0.5:
+        if model is None:
             yield chunk, chunk_audio
+        else:
+            _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
+            if info.language == "sv" and info.language_probability > 0.5:
+                yield chunk, chunk_audio
 
 
 def precheck_for_chunks(sub_dict) -> bool:
@@ -145,7 +161,7 @@ def check_for_sv_subs(videofile: str) -> Optional[int]:
 
 def extract_subs(videofile: str, sub_id: int, savedir: str) -> None:
     """Extract .mp3 or .wav at 16Hz and .srt files from .mp4."""
-    if not os.path.isfile(f"{(os.path.join(savedir))}.srt"):
+    if not os.path.isfile(f"{(os.path.join(savedir))}/file.srt"):
         # Save subtitle in srt format
         _ = sp.run(
             [
@@ -164,76 +180,117 @@ def extract_subs(videofile: str, sub_id: int, savedir: str) -> None:
         )
 
 
+def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model):
+    times = [time.time()]
+    program_id = fn.split("/")[-1].split(".")[0]
+    channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(program_id)
+    savedir = os.path.join(args.out_data, channel, subchannel, year, month, day, program_id)
+    assert channel_plus == "/".join([channel, subchannel])
+
+    swe_sub_id = check_for_sv_subs(fn)
+    times.append(time.time())
+    if swe_sub_id:
+        os.makedirs(savedir, exist_ok=True)
+        extract_subs(fn, swe_sub_id, savedir)
+        times.append(time.time())
+        subs = pysrt.open(os.path.join(savedir, "file.srt"))
+        times.append(time.time())
+        fused = utils.fuse_subtitles(subs)
+        times.append(time.time())
+        dup_marked, seen = dup_marker_single(fused, seen)
+        times.append(time.time())
+        live_subbed = utils.mark_live_subs(dup_marked)
+        times.append(time.time())
+        subs_dict = utils.subrip_to_dict(
+            live_subbed, channel, subchannel, year, month, day, from_time, to_time
+        )
+        times.append(time.time())
+        subs_chunks_dict = make_chunks(subs_dict)
+        times.append(time.time())
+        with open(os.path.join(savedir, "file.json"), "w") as fout:
+            json.dump(subs_chunks_dict, fout, indent=4)
+        times.append(time.time())
+        saved_filenames.append(os.path.join(savedir, "file.json"))
+        # audio
+        n_chunks = 0
+        if precheck_for_chunks(subs_chunks_dict):
+            times.append(time.time())
+            os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
+            extract_sound(input_file=fn, output_path=savedir, sound_format=args.sound_format)
+            times.append(time.time())
+            audio = read_audio(
+                os.path.join(savedir, f"file.{args.sound_format}"),
+                target_sample_rate=args.sample_rate,
+            )
+            times.append(time.time())
+            for i, (chunk, chunk_audio) in enumerate(
+                get_sv_sound_chunks(subs_chunks_dict["chunks"], audio, args.sample_rate, model)
+            ):
+                n_chunks += 1
+                with sf.SoundFile(
+                    os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
+                    "w",
+                    args.sample_rate,
+                    channels=1,
+                ) as fout:
+                    fout.write(chunk_audio)
+                with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
+                    print(chunk["text_whisper"], file=fout)
+                metadata.append(
+                    (
+                        os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
+                        chunk["text"],
+                        chunk["text_whisper"],
+                    )
+                )
+            times.append(time.time())
+            time_diffs = [times[i] - times[i - 1] for i in range(1, len(times))]
+            xs = "check_subs extract_subs read_srt fuse dups livesubs to_dict chunks write_json audio? extract_audio read_audio".split()
+            for i, x in enumerate(xs):
+                print(f"{x:<20s}{time_diffs[i]:.4f}")
+            # print(f"{np.median(np.array(time_diffs[len(xs):-1])):.4f}")
+            try:
+                print(f"{n_chunks: <20d}{time_diffs[-1]/n_chunks:.4f}")
+            except ZeroDivisionError:
+                print("no chunks to write")
+
+
 def main():
     args = get_args()
     print(args)
 
     model_size = "large-v2"
     model = WhisperModel(model_size, device="cuda", compute_type="float16")
+    model = None
 
     metadata: List[Tuple[str, str, str]] = [("file_name", "text", "text_whisper")]
 
     seen = set()
 
     saved_filenames = []
+
+    manager = mp.Manager()
+    seen = manager.dict()
+
     for channel_plus in tqdm(CHANNELS):
         filenames = glob.iglob(f"{args.in_data}/{channel_plus}/**/*mp4", recursive=True)
-        for fn in tqdm(filenames):
-            program_id = fn.split("/")[-2]
-            channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(
-                program_id
-            )
-            savedir = os.path.join(
-                args.out_data, channel, subchannel, year, month, day, program_id
-            )
-            assert channel_plus == "/".join([channel, subchannel])
-
-            swe_sub_id = check_for_sv_subs(fn)
-            if swe_sub_id:
-                os.makedirs(savedir, exist_ok=True)
-                extract_subs(fn, swe_sub_id, savedir)
-                subs = pysrt.open(os.path.join(savedir, "file.srt"))
-                fused = utils.fuse_subtitles(subs)
-                dup_marked, seen = dup_marker_single(fused, seen)
-                live_subbed = utils.mark_live_subs(dup_marked)
-                subs_dict = utils.subrip_to_dict(
-                    live_subbed, channel, subchannel, year, month, day, from_time, to_time
-                )
-                subs_chunks_dict = make_chunks(subs_dict)
-                with open(os.path.join(savedir, "file.json"), "w") as fout:
-                    json.dump(subs_chunks_dict, fout)
-                saved_filenames.append(os.path.join(savedir, "file.json"))
-                # audio
-                if precheck_for_chunks(subs_chunks_dict):
-                    os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
-                    extract_sound(
-                        input_file=fn, output_path=savedir, sound_format=args.sound_format
-                    )
-                    audio = read_audio(
-                        os.path.join(savedir, f"file.{args.sound_format}"),
-                        target_sample_rate=args.sample_rate,
-                    )
-                    for i, (chunk, chunk_audio) in enumerate(
-                        get_sv_sound_chunks(
-                            subs_chunks_dict["chunks"], audio, args.sample_rate, model
-                        )
-                    ):
-                        with sf.SoundFile(
-                            os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
-                            "w",
-                            args.sample_rate,
-                            channels=1,
-                        ) as fout:
-                            fout.write(chunk_audio)
-                        with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
-                            print(chunk["text_whisper"], file=fout)
-                        metadata.append(
-                            (
-                                os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
-                                chunk["text"],
-                                chunk["text_whisper"],
-                            )
-                        )
+        my_fun = partial(
+            do_stuff,
+            args=args,
+            channel_plus=channel_plus,
+            saved_filenames=saved_filenames,
+            metadata=metadata,
+            seen=seen,
+            model=model,
+        )
+        # if True:
+        with mp.Pool(processes=5) as pool:
+            xs = pool.imap(my_fun, tqdm(filenames))
+            # xs = map(my_fun, tqdm(filenames))
+            for _ in xs:
+                pass
+        # for fn in tqdm(filenames):
+        #     do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen)
     with open(os.path.join(args.out_data, "sub_and_chunk_dicts.txt"), "w") as fout:
         for fn in saved_filenames:
             print(fn, file=fout)

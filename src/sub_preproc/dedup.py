@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 def dup_marker_single(
     subs: pysrt.SubRipFile,
-    seen: Set[int],
+    seen,  #: Set[int],
     lookback: int = 4,
 ) -> Tuple[pysrt.SubRipFile, Set[int]]:
     duplicate = 0
@@ -17,7 +17,8 @@ def dup_marker_single(
     for s_i, sub in enumerate(subs):
         text_hash = hash(sub.text_without_tags)
         if text_hash not in seen:
-            seen.add(text_hash)
+            # seen.add(text_hash)
+            seen[text_hash] = 1
             duplicate_candidate = 0
         else:
             duplicate_candidate += 1
