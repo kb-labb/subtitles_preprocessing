@@ -35,6 +35,8 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
                         "end": chunk_end,
                         "duration": chunk_end - chunk_start,
                         "subs": chunk,
+                        "text_whisper": subs_to_whisper(chunk),
+                        "text": subs_to_raw_text(chunk),
                     }
                 )
             # else: we throw away the chunk
