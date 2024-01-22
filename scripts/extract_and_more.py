@@ -1,10 +1,12 @@
 import argparse
 import csv
+import datetime
 import glob
 import itertools as it
 import json
-import multiprocessing as mp
+import logging
 import os
+import pathlib
 import pickle
 import subprocess as sp
 import time
@@ -15,11 +17,16 @@ import librosa
 import numpy as np
 import pysrt
 import soundfile as sf
-from faster_whisper import WhisperModel
+import torch
+import torch.multiprocessing as mp
+
+# from faster_whisper import WhisperModel
 from tqdm import tqdm
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
 import sub_preproc.utils.utils as utils
 from sub_preproc.dedup import dup_marker_single
+from sub_preproc.detect_language import detect_language
 from sub_preproc.utils.make_chunks import make_chunks
 from sub_preproc.utils.utils import SILENCE
 
@@ -42,6 +49,10 @@ CHANNELS = [
     "tv3/tv3",
 ]
 
+# model_size = "large-v3"
+# model = WhisperModel(model_size, device="cuda", compute_type="float16")
+# model = None
+
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -50,6 +61,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--out_data", type=str, required=True)
     parser.add_argument("--sound_format", type=str, default="wav")
     parser.add_argument("--sample_rate", type=int, default=16_000)
+    parser.add_argument("--log_dir", type=str, default="logs")
 
     return parser.parse_args()
 
@@ -107,17 +119,28 @@ def read_audio(sound_file: str, target_sample_rate) -> np.ndarray:
 
 
 def get_sv_sound_chunks(
-    chunks, audio, sample_rate, model
+    chunks, audio, sample_rate, model, processor
 ) -> Iterable[Tuple[Dict[str, Any], np.ndarray]]:
     for chunk in chunks:
         start = chunk["start"]
         end = chunk["end"]
         chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
-        if model is None:
+        if chunk["text"] == "":
+            yield chunk, chunk_audio
+        elif model is None:
             yield chunk, chunk_audio
         else:
-            _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
-            if info.language == "sv" and info.language_probability > 0.5:
+            # _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
+            # if info.language == "sv" and info.language_probability > 0.5:
+            #     yield chunk, chunk_audio
+            inputs = (
+                processor.feature_extractor(chunk_audio, return_tensors="pt", sampling_rate=16_000)
+                .input_features.to("cuda:0")
+                .to(torch.float16)
+            )
+            language_probs = detect_language(model, processor.tokenizer, inputs)[0]
+            l, p = max(language_probs.items(), key=lambda x: x[1])
+            if l == "sv" and p > 0.5:
                 yield chunk, chunk_audio
 
 
@@ -180,7 +203,8 @@ def extract_subs(videofile: str, sub_id: int, savedir: str) -> None:
         )
 
 
-def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model):
+def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, processor):
+    to_log = []
     times = [time.time()]
     program_id = fn.split("/")[-1].split(".")[0]
     channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(program_id)
@@ -222,9 +246,15 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model):
                 os.path.join(savedir, f"file.{args.sound_format}"),
                 target_sample_rate=args.sample_rate,
             )
+
+            p = pathlib.Path(os.path.join(savedir, f"file.{args.sound_format}"))
+            p.unlink()
+
             times.append(time.time())
             for i, (chunk, chunk_audio) in enumerate(
-                get_sv_sound_chunks(subs_chunks_dict["chunks"], audio, args.sample_rate, model)
+                get_sv_sound_chunks(
+                    subs_chunks_dict["chunks"], audio, args.sample_rate, model, processor
+                )
             ):
                 n_chunks += 1
                 with sf.SoundFile(
@@ -247,21 +277,43 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model):
             time_diffs = [times[i] - times[i - 1] for i in range(1, len(times))]
             xs = "check_subs extract_subs read_srt fuse dups livesubs to_dict chunks write_json audio? extract_audio read_audio".split()
             for i, x in enumerate(xs):
-                print(f"{x:<20s}{time_diffs[i]:.4f}")
+                # logging.debug(f"{x:<20s}{time_diffs[i]:.4f}")
+                to_log.append(f"{x:<20s}{time_diffs[i]:.4f}")
             # print(f"{np.median(np.array(time_diffs[len(xs):-1])):.4f}")
-            try:
-                print(f"{n_chunks: <20d}{time_diffs[-1]/n_chunks:.4f}")
-            except ZeroDivisionError:
-                print("no chunks to write")
+            # logging.debug(f"{n_chunks: <20d}{time_diffs[-1]:.4f}")
+            # logging.debug(f"total: {times[-1] - times[0]:.4f}")
+            to_log.append(f"{n_chunks: <20d}{time_diffs[-1]:.4f}")
+            to_log.append(f"total: {times[-1] - times[0]:.4f}")
+    return to_log
 
 
 def main():
     args = get_args()
     print(args)
 
-    model_size = "large-v2"
-    model = WhisperModel(model_size, device="cuda", compute_type="float16")
-    model = None
+    now = datetime.datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+
+    logging.basicConfig(
+        filename=f"{args.log_dir}/{now}.log", encoding="utf-8", level=logging.DEBUG
+    )
+
+    # model_size = "large-v3"
+    # model = WhisperModel(model_size, device="cuda", compute_type="float16")
+    # model = None
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
+    model_id = "distil-whisper/distil-large-v2"
+
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        model_id,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
+        attn_implementation="flash_attention_2",
+    )
+    model.to(device)
+
+    processor = AutoProcessor.from_pretrained(model_id)
 
     metadata: List[Tuple[str, str, str]] = [("file_name", "text", "text_whisper")]
 
@@ -282,13 +334,16 @@ def main():
             metadata=metadata,
             seen=seen,
             model=model,
+            processor=processor,
         )
         # if True:
-        with mp.Pool(processes=5) as pool:
+        with mp.get_context("spawn").Pool(processes=5) as pool:
             xs = pool.imap(my_fun, tqdm(filenames))
             # xs = map(my_fun, tqdm(filenames))
-            for _ in xs:
-                pass
+            for to_log in xs:
+                for x in to_log:
+                    logging.debug(x)
+                logging.debug("")
         # for fn in tqdm(filenames):
         #     do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen)
     with open(os.path.join(args.out_data, "sub_and_chunk_dicts.txt"), "w") as fout:

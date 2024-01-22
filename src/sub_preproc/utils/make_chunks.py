@@ -17,12 +17,18 @@ def make_chunks(subs, min_threshold=10_000, max_threshold=30_000, start_index=1,
         parts = []
         for sub in subs:
             if sub["text"] != SILENCE:
-                part = "".join((whisper_time(sub["start"]), sub["text"], whisper_time(sub["end"])))
+                part = "".join(
+                    (
+                        whisper_time(sub["start"]),
+                        sub["text"].replace("\n", " "),
+                        whisper_time(sub["end"]),
+                    )
+                )
                 parts.append(part)
         return "".join(parts)
 
     def subs_to_raw_text(subs):
-        return " ".join([sub["text"] for sub in subs if sub["text"] != SILENCE])
+        return " ".join([sub["text"] for sub in subs if sub["text"].replace("\n", " ") != SILENCE])
 
     for sub in subs["subs"][start_index:-end_index]:
         sub = sub.copy()
