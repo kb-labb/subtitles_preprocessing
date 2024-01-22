@@ -31,7 +31,7 @@ df_test = pd.read_csv(os.path.join(split_dir,"test.csv"))
 
 # Filter out small files
 def filter_files_by_size(df):
-    base_path = "/home/leoves/projects/nov08/subtitles_preprocessing/chunks/"
+    base_path = os.getcwd() + "/chunks/"
     valid_files = []
     valid_transcriptions = []
     for idx, row in df.iterrows():
