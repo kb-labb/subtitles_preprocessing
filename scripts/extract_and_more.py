@@ -49,10 +49,6 @@ CHANNELS = [
     "tv3/tv3",
 ]
 
-# model_size = "large-v3"
-# model = WhisperModel(model_size, device="cuda", compute_type="float16")
-# model = None
-
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -60,8 +56,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--in_data", type=str, required=True)
     parser.add_argument("--out_data", type=str, required=True)
     parser.add_argument("--sound_format", type=str, default="wav")
+    parser.add_argument("--chunk_sound_format", type=str, default="flac")
     parser.add_argument("--sample_rate", type=int, default=16_000)
     parser.add_argument("--log_dir", type=str, default="logs")
+    parser.add_argument("--skip-audio", action="store_true")
+    parser.add_argument("--seen", type=str, default=None)
+    parser.add_argument("--processes", type=int, default=1)
 
     return parser.parse_args()
 
@@ -98,6 +98,29 @@ def extract_sound(input_file: str, output_path: str, sound_format: str) -> None:
                 "-ar",
                 "16000",
                 f"{output_path}/file.wav",
+            ],
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+            text=True,
+        )
+    # exporting to flac takes a loong time
+    elif sound_format == "flac":
+        _ = sp.run(
+            [
+                "ffmpeg",
+                "-i",
+                input_file,
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "flac",
+                "-compression_level",
+                "5",
+                f"{output_path}/file.flac",
             ],
             stdout=sp.PIPE,
             stderr=sp.PIPE,
@@ -205,85 +228,101 @@ def extract_subs(videofile: str, sub_id: int, savedir: str) -> None:
 
 def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, processor):
     to_log = []
-    times = [time.time()]
+    log_points = [
+        "check_subs",
+        "extract_subs",
+        "read_srt",
+        "fuse",
+        "dups",
+        "livesubs",
+        "to_dict",
+        "chunks",
+        "write_json",
+        "audio?",
+        "extract_audio",
+        "read_audio",
+    ]
+
+    def log_time(log_point, prev):
+        to_log.append(f"{log_point:<20s}{time.time() - prev:.4f}")
+        return time.time()
+
+    start = time.time()
+    prev = start
     program_id = fn.split("/")[-1].split(".")[0]
     channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(program_id)
     savedir = os.path.join(args.out_data, channel, subchannel, year, month, day, program_id)
     assert channel_plus == "/".join([channel, subchannel])
 
     swe_sub_id = check_for_sv_subs(fn)
-    times.append(time.time())
+    prev = log_time("check_subs", prev)
+
     if swe_sub_id:
         os.makedirs(savedir, exist_ok=True)
         extract_subs(fn, swe_sub_id, savedir)
-        times.append(time.time())
+        prev = log_time("extract_subs", prev)
         subs = pysrt.open(os.path.join(savedir, "file.srt"))
-        times.append(time.time())
+        prev = log_time("read_srt", prev)
         fused = utils.fuse_subtitles(subs)
-        times.append(time.time())
+        prev = log_time("fuse", prev)
         dup_marked, seen = dup_marker_single(fused, seen)
-        times.append(time.time())
+        prev = log_time("dups", prev)
         live_subbed = utils.mark_live_subs(dup_marked)
-        times.append(time.time())
+        prev = log_time("livesubs", prev)
         subs_dict = utils.subrip_to_dict(
             live_subbed, channel, subchannel, year, month, day, from_time, to_time
         )
-        times.append(time.time())
+        prev = log_time("to_dict", prev)
         subs_chunks_dict = make_chunks(subs_dict)
-        times.append(time.time())
+        prev = log_time("chunks", prev)
         with open(os.path.join(savedir, "file.json"), "w") as fout:
             json.dump(subs_chunks_dict, fout, indent=4)
-        times.append(time.time())
+        prev = log_time("write_json", prev)
         saved_filenames.append(os.path.join(savedir, "file.json"))
-        # audio
-        n_chunks = 0
-        if precheck_for_chunks(subs_chunks_dict):
-            times.append(time.time())
-            os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
-            extract_sound(input_file=fn, output_path=savedir, sound_format=args.sound_format)
-            times.append(time.time())
-            audio = read_audio(
-                os.path.join(savedir, f"file.{args.sound_format}"),
-                target_sample_rate=args.sample_rate,
-            )
-
-            p = pathlib.Path(os.path.join(savedir, f"file.{args.sound_format}"))
-            p.unlink()
-
-            times.append(time.time())
-            for i, (chunk, chunk_audio) in enumerate(
-                get_sv_sound_chunks(
-                    subs_chunks_dict["chunks"], audio, args.sample_rate, model, processor
+        if not args.skip_audio:
+            # audio
+            n_chunks = 0
+            if precheck_for_chunks(subs_chunks_dict):
+                prev = log_time("audio?", prev)
+                os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
+                extract_sound(input_file=fn, output_path=savedir, sound_format=args.sound_format)
+                prev = log_time("extract_audio", prev)
+                audio = read_audio(
+                    os.path.join(savedir, f"file.{args.sound_format}"),
+                    target_sample_rate=args.sample_rate,
                 )
-            ):
-                n_chunks += 1
-                with sf.SoundFile(
-                    os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
-                    "w",
-                    args.sample_rate,
-                    channels=1,
-                ) as fout:
-                    fout.write(chunk_audio)
-                with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
-                    print(chunk["text_whisper"], file=fout)
-                metadata.append(
-                    (
-                        os.path.join(savedir, "chunks", f"chunk_{i}.{args.sound_format}"),
-                        chunk["text"],
-                        chunk["text_whisper"],
+
+                p = pathlib.Path(os.path.join(savedir, f"file.{args.sound_format}"))
+                p.unlink()
+
+                prev = log_time("read_audio", prev)
+                for i, (chunk, chunk_audio) in enumerate(
+                    get_sv_sound_chunks(
+                        subs_chunks_dict["chunks"], audio, args.sample_rate, model, processor
                     )
-                )
-            times.append(time.time())
-            time_diffs = [times[i] - times[i - 1] for i in range(1, len(times))]
-            xs = "check_subs extract_subs read_srt fuse dups livesubs to_dict chunks write_json audio? extract_audio read_audio".split()
-            for i, x in enumerate(xs):
-                # logging.debug(f"{x:<20s}{time_diffs[i]:.4f}")
-                to_log.append(f"{x:<20s}{time_diffs[i]:.4f}")
-            # print(f"{np.median(np.array(time_diffs[len(xs):-1])):.4f}")
-            # logging.debug(f"{n_chunks: <20d}{time_diffs[-1]:.4f}")
-            # logging.debug(f"total: {times[-1] - times[0]:.4f}")
-            to_log.append(f"{n_chunks: <20d}{time_diffs[-1]:.4f}")
-            to_log.append(f"total: {times[-1] - times[0]:.4f}")
+                ):
+                    n_chunks += 1
+                    with sf.SoundFile(
+                        os.path.join(savedir, "chunks", f"chunk_{i}.{args.chunk_sound_format}"),
+                        "w",
+                        args.sample_rate,
+                        channels=1,
+                    ) as fout:
+                        fout.write(chunk_audio)
+                    with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
+                        print(chunk["text_whisper"], file=fout)
+                    metadata.append(
+                        (
+                            os.path.join(
+                                savedir, "chunks", f"chunk_{i}.{args.chunk_sound_format}"
+                            ),
+                            chunk["text"],
+                            chunk["text_whisper"],
+                        )
+                    )
+                prev = log_time(n_chunks, prev)
+    prev = log_time("total", start)
+
     return to_log
 
 
@@ -305,19 +344,26 @@ def main():
 
     model_id = "distil-whisper/distil-large-v2"
 
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(
-        model_id,
-        torch_dtype=torch_dtype,
-        low_cpu_mem_usage=True,
-        attn_implementation="flash_attention_2",
-    )
-    model.to(device)
+    if args.skip_audio:
+        model = None
+        processor = None
+    else:
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(
+            model_id,
+            torch_dtype=torch_dtype,
+            low_cpu_mem_usage=True,
+            attn_implementation="flash_attention_2",
+        )
+        model.to(device)
 
-    processor = AutoProcessor.from_pretrained(model_id)
+        processor = AutoProcessor.from_pretrained(model_id)
 
     metadata: List[Tuple[str, str, str]] = [("file_name", "text", "text_whisper")]
 
-    seen = set()
+    if args.seen is None:
+        seen = set()
+    else:
+        seen = pickle.load(args.seen)
 
     saved_filenames = []
 
@@ -337,7 +383,7 @@ def main():
             processor=processor,
         )
         # if True:
-        with mp.get_context("spawn").Pool(processes=5) as pool:
+        with mp.get_context("spawn").Pool(processes=args.processes) as pool:
             xs = pool.imap(my_fun, tqdm(filenames))
             # xs = map(my_fun, tqdm(filenames))
             for to_log in xs:
