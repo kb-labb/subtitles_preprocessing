@@ -254,31 +254,41 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, pro
     savedir = os.path.join(args.out_data, channel, subchannel, year, month, day, program_id)
     assert channel_plus == "/".join([channel, subchannel])
 
-    swe_sub_id = check_for_sv_subs(fn)
-    prev = log_time("check_subs", prev)
+    skip_extract = False
+    if os.path.exists(os.path.join(savedir, "file.srt")):
+        skip_extract = True
+    skip_sub_processing = False 
+    if os.path.exists(os.path.join(savedir, "file.json")):
+        skip_sub_processing = True
 
-    if swe_sub_id:
-        os.makedirs(savedir, exist_ok=True)
-        extract_subs(fn, swe_sub_id, savedir)
-        prev = log_time("extract_subs", prev)
-        subs = pysrt.open(os.path.join(savedir, "file.srt"))
-        prev = log_time("read_srt", prev)
-        fused = utils.fuse_subtitles(subs)
-        prev = log_time("fuse", prev)
-        dup_marked, seen = dup_marker_single(fused, seen)
-        prev = log_time("dups", prev)
-        live_subbed = utils.mark_live_subs(dup_marked)
-        prev = log_time("livesubs", prev)
-        subs_dict = utils.subrip_to_dict(
-            live_subbed, channel, subchannel, year, month, day, from_time, to_time
-        )
-        prev = log_time("to_dict", prev)
-        subs_chunks_dict = make_chunks(subs_dict)
-        prev = log_time("chunks", prev)
-        with open(os.path.join(savedir, "file.json"), "w") as fout:
-            json.dump(subs_chunks_dict, fout, indent=4)
-        prev = log_time("write_json", prev)
-        saved_filenames.append(os.path.join(savedir, "file.json"))
+    if skip_extract:
+        swe_sub_id = check_for_sv_subs(fn)
+        prev = log_time("check_subs", prev)
+
+    if skip_extract or swe_sub_id:
+        if not skip_extract:
+            os.makedirs(savedir, exist_ok=True)
+            extract_subs(fn, swe_sub_id, savedir)
+            prev = log_time("extract_subs", prev)
+        if not skip_sub_processing:
+            subs = pysrt.open(os.path.join(savedir, "file.srt"))
+            prev = log_time("read_srt", prev)
+            fused = utils.fuse_subtitles(subs)
+            prev = log_time("fuse", prev)
+            dup_marked, seen = dup_marker_single(fused, seen)
+            prev = log_time("dups", prev)
+            live_subbed = utils.mark_live_subs(dup_marked)
+            prev = log_time("livesubs", prev)
+            subs_dict = utils.subrip_to_dict(
+                live_subbed, channel, subchannel, year, month, day, from_time, to_time
+            )
+            prev = log_time("to_dict", prev)
+            subs_chunks_dict = make_chunks(subs_dict)
+            prev = log_time("chunks", prev)
+            with open(os.path.join(savedir, "file.json"), "w") as fout:
+                json.dump(subs_chunks_dict, fout, indent=4)
+            prev = log_time("write_json", prev)
+            saved_filenames.append(os.path.join(savedir, "file.json"))
         if not args.skip_audio:
             # audio
             n_chunks = 0
@@ -363,7 +373,9 @@ def main():
     if args.seen is None:
         seen = set()
     else:
-        seen = pickle.load(args.seen)
+        # seen = pickle.load(args.seen)
+        with open(args.seen) as fin:
+            seen = json.load(args.seen)
 
     saved_filenames = []
 
@@ -395,12 +407,74 @@ def main():
     with open(os.path.join(args.out_data, "sub_and_chunk_dicts.txt"), "w") as fout:
         for fn in saved_filenames:
             print(fn, file=fout)
-    with open(os.path.join(args.out_data, "seen_subs.pickle"), "wb") as fout:
-        pickle.dump(seen, fout)
+
+    seen = dict(seen)
+    # with open(os.path.join(args.out_data, "seen_subs.pickle"), "wb") as fout:
+    #     pickle.dump(seen, fout)
+    with open(os.path.join(args.out_data, "seen_subs.json"), "w") as fout:
+        json.dump(seen, fout)
+
     with open(os.path.join(args.out_data, "metadata.csv"), "w", newline="") as fout:
         writer = csv.writer(fout)
         writer.writerows(metadata)
 
 
+def extra_credits():
+    args = get_args()
+
+    srt_files = open(f"{args.out_data}/srt-files.txt").readlines()
+    json_files = open(f"{args.out_data}/json-files.txt").readlines()
+    
+    srt_ids = {x.split("/")[-2]: x.strip("\n./") for x in srt_files}
+    json_ids = {x.split("/")[-2]: x.strip("\n./") for x in json_files}
+
+    seen = {}
+
+    for ji in tqdm(json_ids):
+        with open(os.path.join(args.out_data, json_ids[ji])) as fin:
+            subs = json.load(fin)
+        for sub in subs["subs"]:
+            if sub["duplicate"]:
+                if sub["text"] not in seen:
+                    seen[sub["text"]] = 0
+                seen[sub["text"]] += 1
+
+    with open(os.path.join(args.out_data, "seen-subs.json", "w")) as fout:
+        json.dump(seen, fout)
+    return
+
+    ######
+
+    with open(os.path.join(args.out_data, "seen-subs.json", "r")) as fin:
+        seen json.load(fout)
+
+    for si in tqdm(filter(lambda x: x not in json_ids, srt_ids)):
+        print(os.path.getsize(os.path.join(args.out_data, srt_ids[si])), args.out_data + srt_ids[si])
+
+        program_id = si
+        channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(program_id)
+        savedir = os.path.join(args.out_data, channel, subchannel, year, month, day, program_id)
+
+
+        subs = pysrt.open(os.path.join(savedir, "file.srt"))
+        fused = utils.fuse_subtitles(subs)
+        dup_marked, seen = dup_marker_single(fused, seen)
+        live_subbed = utils.mark_live_subs(dup_marked)
+        subs_dict = utils.subrip_to_dict(
+            live_subbed, channel, subchannel, year, month, day, from_time, to_time
+        )
+        subs_chunks_dict = make_chunks(subs_dict)
+        with open(os.path.join(savedir, "file.json"), "w") as fout:
+            json.dump(subs_chunks_dict, fout, indent=4)
+
+    with open(os.path.join(args.out_data, "seen-subs.json", "w")) as fout:
+        json.dump(seen, fout)
+    return
+
+
+
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    extra_credits()
