@@ -25,7 +25,7 @@ from tqdm import tqdm
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
 import sub_preproc.utils.utils as utils
-from sub_preproc.dedup import dup_marker_single
+from sub_preproc.dedup import dup_marker_single, dup_marker_single_list
 from sub_preproc.detect_language import detect_language
 from sub_preproc.utils.make_chunks import make_chunks
 from sub_preproc.utils.utils import SILENCE
@@ -257,11 +257,11 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, pro
     skip_extract = False
     if os.path.exists(os.path.join(savedir, "file.srt")):
         skip_extract = True
-    skip_sub_processing = False 
+    skip_sub_processing = False
     if os.path.exists(os.path.join(savedir, "file.json")):
         skip_sub_processing = True
 
-    if skip_extract:
+    if not skip_extract:
         swe_sub_id = check_for_sv_subs(fn)
         prev = log_time("check_subs", prev)
 
@@ -271,8 +271,12 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, pro
             extract_subs(fn, swe_sub_id, savedir)
             prev = log_time("extract_subs", prev)
         if not skip_sub_processing:
-            subs = pysrt.open(os.path.join(savedir, "file.srt"))
-            prev = log_time("read_srt", prev)
+            try:
+                subs = pysrt.open(os.path.join(savedir, "file.srt"))
+                prev = log_time("read_srt", prev)
+            except UnicodeDecodeError:
+                to_log.append(f"failed to read {savedir}/file.srt")
+                return to_log
             fused = utils.fuse_subtitles(subs)
             prev = log_time("fuse", prev)
             dup_marked, seen = dup_marker_single(fused, seen)
@@ -289,6 +293,9 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, pro
                 json.dump(subs_chunks_dict, fout, indent=4)
             prev = log_time("write_json", prev)
             saved_filenames.append(os.path.join(savedir, "file.json"))
+        else:
+            with open(os.path.join(savedir, "file.json"), "w") as fin:
+                subs_chunks_dict = json.load(fin)
         if not args.skip_audio:
             # audio
             n_chunks = 0
@@ -375,15 +382,23 @@ def main():
     else:
         # seen = pickle.load(args.seen)
         with open(args.seen) as fin:
-            seen = json.load(args.seen)
+            seen = json.load(fin)
+        seen = {int(k): v for k, v in seen.items()}
 
     saved_filenames = []
 
     manager = mp.Manager()
     seen = manager.dict()
 
+    ##
+    srt_files = open(f"{args.out_data}/srt-files.txt").readlines()
+    srt_ids = {x.split("/")[-2]: x.strip("\n./") for x in srt_files}
+    srt_filenames = set(f"{args.out_data}/{x}" for x in srt_ids.values())
+    ##
+
     for channel_plus in tqdm(CHANNELS):
         filenames = glob.iglob(f"{args.in_data}/{channel_plus}/**/*mp4", recursive=True)
+        filenames = filter(lambda x: x.split("/")[-1][:-4] in srt_ids, filenames)
         my_fun = partial(
             do_stuff,
             args=args,
@@ -424,37 +439,45 @@ def extra_credits():
 
     srt_files = open(f"{args.out_data}/srt-files.txt").readlines()
     json_files = open(f"{args.out_data}/json-files.txt").readlines()
-    
+
     srt_ids = {x.split("/")[-2]: x.strip("\n./") for x in srt_files}
     json_ids = {x.split("/")[-2]: x.strip("\n./") for x in json_files}
 
     seen = {}
 
-    for ji in tqdm(json_ids):
-        with open(os.path.join(args.out_data, json_ids[ji])) as fin:
-            subs = json.load(fin)
-        for sub in subs["subs"]:
-            if sub["duplicate"]:
-                if sub["text"] not in seen:
-                    seen[sub["text"]] = 0
-                seen[sub["text"]] += 1
+    # c = 0
+    # for ji in tqdm(json_ids):
+    #     c += 1
+    #     with open(os.path.join(args.out_data, json_ids[ji])) as fin:
+    #         subs = json.load(fin)
+    #     for sub in subs["subs"]:
+    #         if sub["duplicate"]:
+    #             sub_hash = hash(sub["text"])
+    #             if sub_hash not in seen:
+    #                 seen[sub_hash] = 0
+    #             seen[sub_hash] += 1
 
-    with open(os.path.join(args.out_data, "seen-subs.json", "w")) as fout:
-        json.dump(seen, fout)
-    return
+    # with open(os.path.join(args.out_data, "seen-subs.json"), "w") as fout:
+    #     json.dump(seen, fout)
+
+    # return
 
     ######
 
-    with open(os.path.join(args.out_data, "seen-subs.json", "r")) as fin:
-        seen json.load(fout)
+    with open(os.path.join(args.out_data, "seen_subs.json"), "r") as fin:
+        seen = json.load(fin)
+    seen = {int(k): v for k, v in seen.items()}
 
     for si in tqdm(filter(lambda x: x not in json_ids, srt_ids)):
-        print(os.path.getsize(os.path.join(args.out_data, srt_ids[si])), args.out_data + srt_ids[si])
+        print(
+            os.path.getsize(os.path.join(args.out_data, srt_ids[si])), args.out_data + srt_ids[si]
+        )
 
         program_id = si
-        channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(program_id)
+        channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(
+            program_id
+        )
         savedir = os.path.join(args.out_data, channel, subchannel, year, month, day, program_id)
-
 
         subs = pysrt.open(os.path.join(savedir, "file.srt"))
         fused = utils.fuse_subtitles(subs)
@@ -467,14 +490,56 @@ def extra_credits():
         with open(os.path.join(savedir, "file.json"), "w") as fout:
             json.dump(subs_chunks_dict, fout, indent=4)
 
-    with open(os.path.join(args.out_data, "seen-subs.json", "w")) as fout:
+    with open(os.path.join(args.out_data, "seen-subs-new.json"), "w") as fout:
         json.dump(seen, fout)
     return
 
 
+def redo_dedup():
 
+    smdb01 = [
+        "/home/robkur/data/delat/srt_only_smdb01/" + x.strip("\n./")
+        for x in open(f"/home/robkur/data/delat/srt_only_smdb01/json-files.txt").readlines()
+    ]
+    smdb04 = [
+        "/home/robkur/data/delat/srt_only/" + x.strip("\n./")
+        for x in open(f"/home/robkur/data/delat/srt_only/json-files.txt").readlines()
+    ]
+
+    seen = {}
+    i = 0
+    for fn in tqdm((smdb01 + smdb04)):
+        try:
+            with open(fn) as fh:
+                subs_dict = json.load(fh)
+        except json.decoder.JSONDecodeError:
+            print(f"{fn} failed with JSONDecodeError")
+            continue
+        for sub in subs_dict["subs"]:
+            sub["duplicate"] = False
+
+        new_subs, seen = dup_marker_single_list(subs_dict["subs"], seen)
+        subs_dict["subs"] = new_subs
+        subs_dict.pop("chunks")
+        chunks_dict = make_chunks(subs_dict)
+        with open(fn + ".new", "w") as fout:
+            json.dump(chunks_dict, fout, indent=4)
+
+        if i % 1000 == 0:
+            print(len(seen))
+        i += 1
+
+    with open("seen-subs.json", "w") as fh:
+        json.dump(seen, fh)
 
 
 if __name__ == "__main__":
     # main()
-    extra_credits()
+    # extra_credits()
+    redo_dedup()
+# TODO
+# duplicates are not correct
+# set all duplicates to False
+# restart with ALL files
+# maybe not hash but string
+# redo chunks as well

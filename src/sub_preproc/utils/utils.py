@@ -260,7 +260,7 @@ def dt_time_to_ms(time: datetime.time) -> int:
     )
 
 
-def ms_to_time(ms: int) -> datetime.time:
+def ms_to_time(ms: int, to_datetime=True) -> datetime.time:
     hours = ms // HOUR
     ms -= hours * HOUR
     minutes = ms // MINUTE
@@ -268,7 +268,10 @@ def ms_to_time(ms: int) -> datetime.time:
     seconds = ms // SECOND
     ms -= seconds * SECOND
     microseconds = ms * 1_000
-    return datetime.time(hours, minutes, seconds, microseconds)
+    if to_datetime:
+        return datetime.time(hours, minutes, seconds, microseconds)
+    else:
+        return (hours, minutes, seconds, microseconds)
 
 
 def is_duplicate(text):

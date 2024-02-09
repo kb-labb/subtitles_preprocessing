@@ -38,6 +38,39 @@ def dup_marker_single(
     return subs, seen
 
 
+def dup_marker_single_list(
+    subs: list,
+    seen,  #: Set[int],
+    lookback: int = 4,
+) -> Tuple[list, Set[int]]:
+    duplicate = 0
+    duplicate_candidate = 0
+    subs = subs.copy()
+    for s_i, sub in enumerate(subs):
+        text_hash = hash(sub["text"])
+        # text_hash = sub["text"]
+        if text_hash not in seen:
+            # seen.add(text_hash)
+            seen[text_hash] = 1
+            duplicate_candidate = 0
+        else:
+            duplicate_candidate += 1
+
+        if duplicate_candidate >= lookback:
+            duplicate = lookback
+        else:
+            duplicate -= 1
+
+        if duplicate > 0:
+            subs[s_i - lookback]["duplicate"] = True
+    # get the rest
+    for s_i in range(lookback, 0, -1):
+        if duplicate > 0:
+            subs[-s_i]["duplicate"] = True
+        duplicate -= 1
+    return subs, seen
+
+
 def mark_duplicates(in_data: str, lookback: int = 4) -> None:
     seen: Set[int] = set()
     file_names = glob.iglob(f"{in_data}/**/file.srt", recursive=True)
