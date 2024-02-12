@@ -149,9 +149,11 @@ def get_sv_sound_chunks(
         end = chunk["end"]
         chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
         if chunk["text"] == "":
-            yield chunk, chunk_audio
+            pass
+            # yield chunk, chunk_audio
         elif model is None:
-            yield chunk, chunk_audio
+            pass
+            # yield chunk, chunk_audio
         else:
             # _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
             # if info.language == "sv" and info.language_probability > 0.5:
@@ -337,7 +339,7 @@ def do_stuff(fn, args, channel_plus, saved_filenames, metadata, seen, model, pro
                             chunk["text_whisper"],
                         )
                     )
-                prev = log_time(n_chunks, prev)
+                prev = log_time(str(n_chunks), prev)
     prev = log_time("total", start)
 
     return to_log
@@ -533,10 +535,124 @@ def redo_dedup():
         json.dump(seen, fh)
 
 
+def extract_audio_chunks_worker(fn_audio_and_fn_subs, args, model, processor, metadata):
+    fn_audio, fn_subs = fn_audio_and_fn_subs.split()
+    to_log = []
+
+    def log_time(log_point, prev):
+        to_log.append(f"{log_point:<20s}{time.time() - prev:.4f}")
+        return time.time()
+
+    savedir = "/".join(fn_subs.split("/")[:-1])
+
+    start = time.time()
+    prev = start
+
+    try:
+        with open(fn_subs) as fin:
+            subs_chunks_dict = json.load(fin)
+    except json.JSONDecodeError:
+        print(fn_subs)
+        return to_log
+    n_chunks = 0
+    if precheck_for_chunks(subs_chunks_dict):
+        prev = log_time("audio?", prev)
+        os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
+        extract_sound(input_file=fn_audio, output_path=savedir, sound_format=args.sound_format)
+        prev = log_time("extract_audio", prev)
+        audio = read_audio(
+            os.path.join(savedir, f"file.{args.sound_format}"),
+            target_sample_rate=args.sample_rate,
+        )
+
+        p = pathlib.Path(os.path.join(savedir, f"file.{args.sound_format}"))
+        p.unlink()
+
+        prev = log_time("read_audio", prev)
+        for i, (chunk, chunk_audio) in enumerate(
+            get_sv_sound_chunks(
+                subs_chunks_dict["chunks"], audio, args.sample_rate, model, processor
+            )
+        ):
+            n_chunks += 1
+            with sf.SoundFile(
+                os.path.join(savedir, "chunks", f"chunk_{i}.{args.chunk_sound_format}"),
+                "w",
+                args.sample_rate,
+                channels=1,
+            ) as fout:
+                fout.write(chunk_audio)
+            with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
+                print(chunk["text_whisper"], file=fout)
+            metadata.append(
+                (
+                    os.path.join(savedir, "chunks", f"chunk_{i}.{args.chunk_sound_format}"),
+                    chunk["text"],
+                    chunk["text_whisper"],
+                )
+            )
+        prev = log_time(str(n_chunks), prev)
+    prev = log_time("total", start)
+    return to_log
+
+
+def extract_audio_chunks_main():
+    args = get_args()
+    print(args)
+
+    now = datetime.datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+
+    logging.basicConfig(
+        filename=f"{args.log_dir}/{now}.log", encoding="utf-8", level=logging.DEBUG
+    )
+
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
+    model_id = "distil-whisper/distil-large-v2"
+
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        model_id,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
+        attn_implementation="flash_attention_2",
+    )
+    model.to(device)
+
+    processor = AutoProcessor.from_pretrained(model_id)
+
+    metadata: List[Tuple[str, str, str]] = [("file_name", "text", "text_whisper")]
+
+    my_fun = partial(
+        extract_audio_chunks_worker,
+        args=args,
+        metadata=metadata,
+        model=model,
+        processor=processor,
+    )
+    filenames = [
+        x.strip()
+        for x in open(
+            "/home/robkur/workspace/subtitles_preprocessing/extract_from_here.txt"
+        ).readlines()
+    ]
+    with mp.get_context("spawn").Pool(processes=args.processes) as pool:
+        xs = pool.imap(my_fun, tqdm(filenames))
+        for to_log in xs:
+            for x in to_log:
+                logging.debug(x)
+            logging.debug("")
+
+    with open(os.path.join(args.out_data, "metadata.csv"), "w", newline="") as fout:
+        writer = csv.writer(fout)
+        writer.writerows(metadata)
+
+
 if __name__ == "__main__":
+    extract_audio_chunks_main()
     # main()
     # extra_credits()
-    redo_dedup()
+    # redo_dedup()
 # TODO
 # duplicates are not correct
 # set all duplicates to False
