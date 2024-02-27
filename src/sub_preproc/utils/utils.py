@@ -284,21 +284,26 @@ def is_live(text):
 
 def subrip_to_dict(
     subs: pysrt.SubRipFile,
-    channel: str,
-    subchannel: str,
-    year: str,
-    month: str,
-    day: str,
-    from_time: str,
-    to_time: str,
-    data_source: str = "tv_smbd",
+    channel: Optional[str],
+    subchannel: Optional[str],
+    year: Optional[str],
+    month: Optional[str],
+    day: Optional[str],
+    from_time: Optional[str],
+    to_time: Optional[str],
+    data_source: Optional[str] = "tv_smbd",
 ) -> dict:
     # XA_cmore_cmoreseries_2023-03-01_100000_110000
-    year = int(year)
-    month = int(month)
-    day = int(day)
-    from_time = int(from_time)
-    to_time = int(to_time)
+    if year:
+        year = int(year)
+    if month:
+        month = int(month)
+    if day:
+        day = int(day)
+    if from_time:
+        from_time = int(from_time)
+    if to_time:
+        to_time = int(to_time)
 
     subs_dict = {
         "metadata": {
