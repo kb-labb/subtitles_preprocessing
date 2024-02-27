@@ -8,6 +8,6 @@
 | SVT            | v           | v              | 300            |                         |                           | 1500          |                            |                              | pipeline |
 | smdb01         | v           | v              | 5.3 (sub only) |                         |         105               | 44 000        |          8475 / 2          |          752                 | pipeline |
 | smdb04         | v           | v              | 13 (sub only)  |                         |          97               | 126 000       |          8475 / 2          |          672                 | pipeline |
-| youtube        | ?           | ?              | 13 000         |                         |                           | 6000          |                            |                              | pipeline |
+| youtube        | ?           | ?              |                |                         |                           | 8110          |  no dedup                  | 6033 (bleu > 0.3)            | pipeline |
 | Riksdagsanf.   | ?           | ?              | ?              |                         |                           | 5000          |                            |                              | pipeline |
 | Swedia         | v           | v              | ?              |                         |                           | 144           |                            |                              | pipeline |
