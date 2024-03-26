@@ -42,6 +42,10 @@ def decode_swedia_id(program_id: str) -> Tuple[str, str, str]:
     location, speaker_id, version = program_id.split("_")
     return location, speaker_id, version
 
+def decode_svt_id(pevi: str) -> Tuple[str, str]:
+    program_id, split = pevi.split("-")
+    return location, speaker_id, version
+
 def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
     mysubs = pysrt.SubRipFile()
     prev = None
