@@ -288,6 +288,7 @@ def compute_chunks(
     subs_dict, thresholds=[(1, 5_000), (5_001, 10_000), (10_001, 20_000), (20_001, 30_000)]
 ):
     # make chunks
+    subs_dict["chunks"] = []
     for mini, maxi in thresholds:
         subs_dict = make_chunks(subs_dict, min_threshold=mini, max_threshold=maxi)
 
@@ -381,6 +382,15 @@ def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
     return to_log
 
 
+def compute_chunks_and_load(fn):
+    print(fn)
+    with open(fn, "r") as fh:
+        subs_dict =  compute_chunks(json.load(fh))
+    with open(fn, "w") as fh:
+        json.dump(subs_dict, fh, indent=4)
+    return []
+
+
 def main():
     args = get_args()
     print(args)
@@ -395,7 +405,7 @@ def main():
     filenames = []
     with open(args.in_data) as fh:
         for line in fh:
-            filenames.append(line)
+            filenames.append(line.strip())
 
     match args.task:
         case "extract_subs":
@@ -408,9 +418,7 @@ def main():
 
         case "compute_chunks":
 
-            def worker_fun(fn):
-                with open(fn) as fh:
-                    return compute_chunks(json.load(fh))
+            worker_fun = compute_chunks_and_load
 
         case "extract_audio":
             worker_fun = partial(extract_audio, args=args)

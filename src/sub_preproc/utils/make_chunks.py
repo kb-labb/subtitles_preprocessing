@@ -46,10 +46,11 @@ def make_chunks(
         return " ".join([sub["text"] for sub in subs if sub["text"].replace("\n", " ") != SILENCE])
 
     for sub_i, sub in enumerate(subs["subs"][start_index:-end_index]):
-        sub = sub.copy()
         # silent subs get negative ids
         if sub["text"] == SILENCE:
             sub_i *= -1
+        sub["id"] = sub_i
+        sub = sub.copy()
         # add to chunk if total chunk length < 30s
         if sub["live"] or sub["duplicate"]:
             if total_length >= min_threshold:
