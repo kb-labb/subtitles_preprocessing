@@ -155,3 +155,7 @@ def main():
             json.dump(sub_dict, f, ensure_ascii=False, indent=4)
 
         logger.info(f"Transcription finished: {dataset_info[0]['json_path']}.")
+
+
+if __name__ == "__main__":
+    main()
