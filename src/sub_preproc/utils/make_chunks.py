@@ -16,12 +16,12 @@ def make_chunks(
     chunk_start = 0
     chunk_end = 0
 
-    if "chunks" not in subs:
-        subs["chunks"] = {}
-    if f"{min_threshold / 1_000}-{max_threshold / 1_000}" not in subs["chunks"]:
-        subs["chunks"][f"{min_threshold / 1_000}-{max_threshold / 1_000}"] = chunks
-    else:
-        raise Exception("Chunks with these thresholds already exist")
+    # if "chunks" not in subs:
+    #     subs["chunks"] = {}
+    # if f"{min_threshold / 1_000}-{max_threshold / 1_000}" not in subs["chunks"]:
+    #     subs["chunks"][f"{min_threshold / 1_000}-{max_threshold / 1_000}"] = chunks
+    # else:
+    #     raise Exception("Chunks with these thresholds already exist")
 
     def subs_to_whisper(subs):
         def whisper_time(ms):
@@ -169,5 +169,10 @@ def make_chunks(
                 "sub_ids": sub_ids,
             }
         )
+
+    if "chunks" not in subs:
+        subs["chunks"] = chunks
+    else:
+        subs["chunks"].extend(chunks)
 
     return subs

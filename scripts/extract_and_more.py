@@ -285,7 +285,7 @@ def process_subs(fn, args, seen):
 
 
 def compute_chunks(
-    subs_dict, thresholds=[(1, 5_000), (5_000, 10_000), (10_000, 20_000), (20_000, 30_000)]
+    subs_dict, thresholds=[(1, 5_000), (5_001, 10_000), (10_001, 20_000), (20_001, 30_000)]
 ):
     # make chunks
     for mini, maxi in thresholds:
@@ -320,7 +320,9 @@ def extract_audio(fn_video_fn_subs, args):
         # extract audio from mp4
         os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
         extract_sound(input_file=fn_video, output_path=savedir, sound_format=args.sound_format)
+        subs_dict["metadata"]["audio_path"] = f"{savedir}/file.{args.sound_format}"
         prev = log_time("extract_audio", prev)
+
     return
 
 
@@ -414,16 +416,17 @@ def main():
             worker_fun = partial(extract_audio, args=args)
 
         case "extract_chunks":
-            processor = AutoProcessor.from_pretrained("openai/whisper-large-v3")
-            model = AutoModelForSpeechSeq2Seq.from_pretrained("openai/whisper-large-v3")
-            sample_rate = 16_000
-            worker_fun = partial(
-                check_and_extract_chunks,
-                args=args,
-                model=model,
-                processor=processor,
-                sample_rate=sample_rate,
-            )
+            raise Exception("Please use transcribe scripts instead")
+            # processor = AutoProcessor.from_pretrained("openai/whisper-large-v3")
+            # model = AutoModelForSpeechSeq2Seq.from_pretrained("openai/whisper-large-v3")
+            # sample_rate = 16_000
+            # worker_fun = partial(
+            #     check_and_extract_chunks,
+            #     args=args,
+            #     model=model,
+            #     processor=processor,
+            #     sample_rate=sample_rate,
+            # )
 
     with mp.get_context("spawn").Pool(processes=args.processes) as pool:
         xs = pool.imap(worker_fun, tqdm(filenames))
