@@ -29,27 +29,38 @@ from sub_preproc.utils.utils import SILENCE
 from tqdm import tqdm
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
+CHANNELS = [
+    "cmore/cmorefirst",
+    "cmore/cmorehist",
+    "cmore/cmoreseries",
+    "cmore/cmorestars",
+    "cmore/sfkanalen",
+    "tv4/sjuan",
+    "tv4/tv12",
+    "tv4/tv4",
+    "tv4/tv4fakta",
+    "tv4/tv4film",
+    "viasat/vfilmaction",
+    "viasat/vfilmfamily",
+    "viasat/vfilmhits",
+    "viasat/vfilmpremiere",
+    "viasat/vseries",
+    "tv3/tv3",
+]
+
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--in_data", help="file with list of filenames", type=str, required=True)
-    parser.add_argument("--out_data", help="output folder", type=str, required=True)
-    parser.add_argument(
-        "--sound_format", help="sound format for extracting from mp4", type=str, default="wav"
-    )
-    parser.add_argument(
-        "--chunk_sound_format", help="sound format for extracting chunks", type=str, default="flac"
-    )
+    parser.add_argument("--in_data", type=str, required=True)
+    parser.add_argument("--out_data", type=str, required=True)
+    parser.add_argument("--sound_format", type=str, default="wav")
+    parser.add_argument("--chunk_sound_format", type=str, default="flac")
     parser.add_argument("--sample_rate", type=int, default=16_000)
     parser.add_argument("--log_dir", type=str, default="logs")
-    parser.add_argument("--processes", type=int, default=1)
+    parser.add_argument("--skip-audio", action="store_true")
     parser.add_argument("--seen", type=str, default=None)
-    parser.add_argument(
-        "--task",
-        type=str,
-        choices=["extract_subs", "compute_chunks", "extract_audio", "extract_chunks"],
-    )
+    parser.add_argument("--processes", type=int, default=1)
 
     return parser.parse_args()
 
@@ -145,7 +156,9 @@ def get_audio_chunk(
         # if info.language == "sv" and info.language_probability > 0.5:
         #     yield chunk, chunk_audio
         inputs = (
-            processor.feature_extractor(chunk_audio, return_tensors="pt", sampling_rate=16_000)
+            processor.feature_extractor(
+                chunk_audio, return_tensors="pt", sampling_rate=16_000
+            )
             .input_features.to("cuda:0")
             .to(torch.float16)
         )
@@ -224,9 +237,13 @@ def process_subs(fn, args, seen):
     prev = start
 
     program_id = fn.split("/")[-1].split(".")[0]
-    channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(program_id)
+    channel, subchannel, year, month, day, from_time, to_time = utils.decode_program_id(
+        program_id
+    )
 
-    savedir = os.path.join(args.out_data, channel, subchannel, year, month, day, program_id)
+    savedir = os.path.join(
+        args.out_data, channel, subchannel, year, month, day, program_id
+    )
 
     skip_extract = False
     if os.path.exists(os.path.join(savedir, "file.srt")):
@@ -276,7 +293,14 @@ def process_subs(fn, args, seen):
             with open(os.path.join(savedir, "file.json"), "w") as fin:
                 subs_dict = json.load(fin)
 
-        subs_dict = compute_chunks(subs_dict)
+        # make chunks
+        for mini, maxi in [
+            (1, 5_000),
+            (5_000, 10_000),
+            (10_000, 20_000),
+            (20_000, 30_000),
+        ]:
+            subs_dict = make_chunks(subs_dict, min_threshold=mini, max_threshold=maxi)
         prev = log_time("chunks", prev)
 
         with open(os.path.join(savedir, "file.json"), "w") as fout:
@@ -284,19 +308,7 @@ def process_subs(fn, args, seen):
         prev = log_time("write_json", prev)
 
 
-def compute_chunks(
-    subs_dict, thresholds=[(1, 5_000), (5_000, 10_000), (10_000, 20_000), (20_000, 30_000)]
-):
-    # make chunks
-    for mini, maxi in thresholds:
-        subs_dict = make_chunks(subs_dict, min_threshold=mini, max_threshold=maxi)
-
-    return subs_dict
-
-
-def extract_audio(fn_video_fn_subs, args):
-    # expects one string to be split into two filenames
-    fn_video, fn_subs = fn_video_fn_subs.split()
+def extract_audio(fn_video, fn_subs, args, model, processor):
     to_log = []
 
     def log_time(log_point, prev):
@@ -319,7 +331,9 @@ def extract_audio(fn_video_fn_subs, args):
         prev = log_time("audio?", prev)
         # extract audio from mp4
         os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
-        extract_sound(input_file=fn_video, output_path=savedir, sound_format=args.sound_format)
+        extract_sound(
+            input_file=fn_video, output_path=savedir, sound_format=args.sound_format
+        )
         prev = log_time("extract_audio", prev)
     return
 
@@ -373,7 +387,9 @@ def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
                 channels=1,
             ) as fout:
                 fout.write(chunk_audio)
-            with open(os.path.join(savedir, "chunks", f"chunk_{threshold}_{i}.txt"), "w") as fout:
+            with open(
+                os.path.join(savedir, "chunks", f"chunk_{threshold}_{i}.txt"), "w"
+            ) as fout:
                 print(chunk["text_whisper"], file=fout)
     prev = log_time(str(n_chunks), prev)
     return to_log
@@ -385,52 +401,9 @@ def main():
 
     now = datetime.datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
 
-    os.makedirs(args.log_dir, exist_ok=True)
     logging.basicConfig(
         filename=f"{args.log_dir}/{now}.log", encoding="utf-8", level=logging.DEBUG
     )
-
-    filenames = []
-    with open(args.in_data) as fh:
-        for line in fh:
-            filenames.append(line)
-
-    match args.task:
-        case "extract_subs":
-            if args.seen is not None:
-                with open(args.seen) as fh:
-                    seen = json.load(fh)
-            else:
-                seen = {}
-            worker_fun = partial(process_subs, args=args, seen=seen)
-
-        case "compute_chunks":
-
-            def worker_fun(fn):
-                with open(fn) as fh:
-                    return compute_chunks(json.load(fh))
-
-        case "extract_audio":
-            worker_fun = partial(extract_audio, args=args)
-
-        case "extract_chunks":
-            processor = AutoProcessor.from_pretrained("openai/whisper-large-v3")
-            model = AutoModelForSpeechSeq2Seq.from_pretrained("openai/whisper-large-v3")
-            sample_rate = 16_000
-            worker_fun = partial(
-                check_and_extract_chunks,
-                args=args,
-                model=model,
-                processor=processor,
-                sample_rate=sample_rate,
-            )
-
-    with mp.get_context("spawn").Pool(processes=args.processes) as pool:
-        xs = pool.imap(worker_fun, tqdm(filenames))
-        for to_log in xs:
-            for x in to_log:
-                logging.debug(x)
-            logging.debug("")
 
 
 if __name__ == "__main__":

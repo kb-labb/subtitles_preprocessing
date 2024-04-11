@@ -159,6 +159,9 @@ package-data = {"sample" = ["*.dat"]}
 requires = ["setuptools>=43.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.ruff]
+line-length = 99
+
 [tool.black]
 line-length = 99
 # target-version = ['py37']

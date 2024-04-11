@@ -2,7 +2,6 @@ import datetime
 import glob
 import os
 import textgrid
-import json
 import sys
 from collections import deque
 from typing import Tuple, Optional
@@ -38,13 +37,16 @@ def decode_program_id(program_id: str) -> Tuple[str, str, str, str, str, str, st
     to_time = to_time[:6]  # datetime.time.isoformat(to_time[:6])
     return channel, subchannel, year, month, day, from_time, to_time
 
+
 def decode_swedia_id(program_id: str) -> Tuple[str, str, str]:
     location, speaker_id, version = program_id.split("_")
     return location, speaker_id, version
 
+
 def decode_svt_id(pevi: str) -> Tuple[str, str]:
     program_id, split = pevi.split("-")
     return location, speaker_id, version
+
 
 def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:
     mysubs = pysrt.SubRipFile()
@@ -263,8 +265,10 @@ def get_stats_folder(in_data: str) -> Optional[pd.DataFrame]:
 def srt_time_to_ms(time: pysrt.SubRipTime) -> int:
     return time.hours * HOUR + time.minutes * MINUTE + time.seconds * SECOND + time.milliseconds
 
+
 def srt_s_to_ms(time):
-    return round(time*1000)
+    return round(time * 1000)
+
 
 def dt_time_to_ms(time: datetime.time) -> int:
     return (
@@ -293,10 +297,12 @@ def is_duplicate(text):
 def is_live(text):
     return "<live_sub>" in text
 
+
 def is_silence(text):
     if text == "":
         text = "<|silence|>"
-    return text 
+    return text
+
 
 def subrip_to_dict(
     subs: pysrt.SubRipFile,
@@ -363,6 +369,7 @@ def subrip_to_dict(
 
     return subs_dict
 
+
 def textgrid_to_dict(
     subs: str,
     location: str,
@@ -370,7 +377,6 @@ def textgrid_to_dict(
     version: str,
     data_source: str = "swedia",
 ) -> dict:
-
     subs_dict = {
         "metadata": {
             "category": "/".join(subs.split("/")[-2:-1]),
@@ -385,7 +391,7 @@ def textgrid_to_dict(
     tg = textgrid.TextGrid.fromFile(subs)
     for item in tg:
         for interval in item:
-            sub_start = srt_s_to_ms(interval.minTime) 
+            sub_start = srt_s_to_ms(interval.minTime)
             sub_end = srt_s_to_ms(interval.maxTime)
 
             end = srt_s_to_ms(interval.maxTime)
@@ -393,7 +399,7 @@ def textgrid_to_dict(
                 {
                     "start": srt_s_to_ms(interval.minTime),
                     "end": srt_s_to_ms(interval.maxTime),
-                    "duration": srt_s_to_ms(interval.maxTime-interval.minTime),
+                    "duration": srt_s_to_ms(interval.maxTime - interval.minTime),
                     "text": is_silence(interval.mark),
                     "duplicate": False,
                     "live": False,
@@ -401,6 +407,7 @@ def textgrid_to_dict(
             )
 
     return subs_dict
+
 
 if __name__ == "__main__":
     # fn = "/home/robkur/workspace/subtitles_preprocessing/srt_only_dedup/XA/tv4/tv4/2022/12/15/XA_tv4_tv4_2022-12-15_090000_100000/file.srt"
