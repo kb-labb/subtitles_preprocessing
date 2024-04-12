@@ -114,6 +114,7 @@ def extract_sound(input_file: str, output_path: str, sound_format: str) -> None:
             stderr=sp.PIPE,
             text=True,
         )
+    return _
 
 
 def read_audio(sound_file: str, target_sample_rate) -> np.ndarray:
@@ -158,8 +159,11 @@ def precheck_for_chunks(sub_dict) -> bool:
     for chunk in sub_dict["chunks"]:
         # if it's a silent chunk then there will be only one sub
         # if it is a non-silent chunk with one sub then check if it isn't silence
-        if len(chunk["subs"]) > 1 or chunk["subs"][0]["text"] != SILENCE:
+        if len(chunk["subs"]) > 1:
             return True
+        elif len(chunk["subs"]) == 1:
+            return chunk["subs"][0] != SILENCE
+
     return False
 
 
@@ -323,8 +327,10 @@ def extract_audio(fn_video_fn_subs, args):
         extract_sound(input_file=fn_video, output_path=savedir, sound_format=args.sound_format)
         subs_dict["metadata"]["audio_path"] = f"{savedir}/file.{args.sound_format}"
         prev = log_time("extract_audio", prev)
+    with open(fn_subs, "w") as fout:
+        json.dump(subs_dict, fout, indent=4)
 
-    return
+    return to_log
 
 
 def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
@@ -383,12 +389,22 @@ def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
 
 
 def compute_chunks_and_load(fn):
-    print(fn)
+    to_log = []
+    start = time.time()
+    prev = start
+
+    def log_time(log_point, prev):
+        to_log.append(f"{log_point:<20s}{time.time() - prev:.4f}")
+        return time.time()
+
     with open(fn, "r") as fh:
         subs_dict =  compute_chunks(json.load(fh))
+    prev = log_time("compute_chunks", prev)
     with open(fn, "w") as fh:
         json.dump(subs_dict, fh, indent=4)
-    return []
+    prev = log_time("write dict", prev)
+    log_time("total", start)
+    return log_time
 
 
 def main():
@@ -438,6 +454,7 @@ def main():
 
     with mp.get_context("spawn").Pool(processes=args.processes) as pool:
         xs = pool.imap(worker_fun, tqdm(filenames))
+        # xs = map(worker_fun, tqdm(filenames))
         for to_log in xs:
             for x in to_log:
                 logging.debug(x)
