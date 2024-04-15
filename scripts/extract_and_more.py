@@ -17,7 +17,6 @@ import torch.multiprocessing as mp
 from sub_preproc.dedup import dup_marker_single_list
 from sub_preproc.utils.make_chunks import make_chunks
 from sub_preproc.utils.utils import SILENCE
-
 from tqdm import tqdm
 
 
@@ -121,9 +120,7 @@ def read_audio(sound_file: str, target_sample_rate) -> np.ndarray:
     return audio
 
 
-def get_audio_chunk(
-    chunk, audio, sample_rate
-) -> Optional[Tuple[Dict[str, Any], np.ndarray]]:
+def get_audio_chunk(chunk, audio, sample_rate) -> Optional[Tuple[Dict[str, Any], np.ndarray]]:
     start = chunk["start"]
     end = chunk["end"]
     chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
@@ -343,9 +340,7 @@ def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
 
     n_chunks = 0
     for i, chunk in enumerate(subs_dict["chunks"]):
-        _, chunk_audio = get_audio_chunk(
-            chunk, audio, sample_rate
-        )
+        _, chunk_audio = get_audio_chunk(chunk, audio, sample_rate)
         n_chunks += 1
         with sf.SoundFile(
             os.path.join(

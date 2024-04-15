@@ -14,6 +14,8 @@ from sub_preproc.utils.dataset import (
 from tqdm import tqdm
 from transformers import (
     AutoModelForCTC,
+    AutoProcessor,
+    Wav2Vec2Processor,
     Wav2Vec2ProcessorWithLM,
 )
 
@@ -90,22 +92,17 @@ def main():
 
     model = AutoModelForCTC.from_pretrained(args.model_name, torch_dtype=torch.float16).to(device)
 
-    # processor = Wav2Vec2Processor.from_pretrained(
-    #     args.model_name, sample_rate=16000, return_tensors="pt"
-    # )
-    processor = Wav2Vec2ProcessorWithLM.from_pretrained("/home/robkur/workspace/make_kenlm/voxrex_europarl-5gram", sample_rate=16_000, return_tensors="pt")
-
-    audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files, json_paths=json_files, model_name=args.model_name, processor=processor,
-
-    # processor = Wav2Vec2Processor.from_pretrained(
-    #     args.model_name, sample_rate=16000, return_tensors="pt"
-    # )
-    processor = Wav2Vec2ProcessorWithLM.from_pretrained(
-        "/home/robkur/workspace/make_kenlm/voxrex_europarl-5gram",
-        sample_rate=16_000,
-        return_tensors="pt",
+    processor = AutoProcessor.from_pretrained(
+        args.model_name, sample_rate=16000, return_tensors="pt"
     )
+    # processor = Wav2Vec2Processor.from_pretrained(
+    #     args.model_name, sample_rate=16000, return_tensors="pt"
+    # )
+    # processor = Wav2Vec2ProcessorWithLM.from_pretrained(
+    #     "/home/robkur/workspace/make_kenlm/voxrex_europarl-5gram",
+    #     sample_rate=16_000,
+    #     return_tensors="pt",
+    # )
 
     audio_dataset = AudioFileChunkerDataset(
         audio_paths=audio_files,
@@ -149,14 +146,16 @@ def main():
             with torch.inference_mode():
                 logits = model(batch).logits
 
-            probs = torch.nn.functional.softmax(logits, dim=-1)  # Need for CTC segmentation
-            # predicted_ids = torch.argmax(logits, dim=-1)
-            # transcription = audio_dataset.processor.batch_decode(
-            #     predicted_ids, output_word_offsets=True
-            # )
-            transcription = audio_dataset.processor.batch_decode(
-                logits.cpu().numpy(), output_word_offsets=True
-            )
+            # probs = torch.nn.functional.softmax(logits, dim=-1)  # Need for CTC segmentation
+            if type(processor) == Wav2Vec2Processor:
+                predicted_ids = torch.argmax(logits, dim=-1)
+                transcription = audio_dataset.processor.batch_decode(
+                    predicted_ids, output_word_offsets=True
+                )
+            elif type(processor) == Wav2Vec2ProcessorWithLM:
+                transcription = audio_dataset.processor.batch_decode(
+                    logits.cpu().numpy(), output_word_offsets=True
+                )
 
             word_timestamps = get_word_timestamps_hf(
                 transcription["word_offsets"], time_offset=TIME_OFFSET
