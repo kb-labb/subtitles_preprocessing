@@ -9,9 +9,7 @@ import soundfile as sf
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from transformers import Wav2Vec2Processor, WhisperProcessor
-
-from rixvox.audio import convert_audio_to_wav
+from transformers import Wav2Vec2Processor, WhisperProcessor, AutoProcessor
 
 
 class AudioDataset(Dataset):
@@ -55,14 +53,15 @@ class AudioFileChunkerDataset(Dataset):
             "is_langdetected": Whether the audio has been language detected
     """
 
-    def __init__(self, audio_paths, json_paths, model_name="openai/whisper-large-v2"):
+    def __init__(self, audio_paths, json_paths, model_name, processor):
         self.audio_paths = audio_paths
         self.json_paths = json_paths
         self.model_name = model_name
-        if "whisper" in model_name:
-            self.processor = WhisperProcessor.from_pretrained(model_name)
-        elif "wav2vec2" in model_name:
-            self.processor = Wav2Vec2Processor.from_pretrained(model_name)
+        self.processor = processor
+        # if "whisper" in model_name:
+        #     self.processor = WhisperProcessor.from_pretrained(model_name)
+        # elif "wav2vec2" in model_name:
+        #     self.processor = AutoProcessor.from_pretrained(model_name)
 
     def __len__(self):
         return len(self.audio_paths)
