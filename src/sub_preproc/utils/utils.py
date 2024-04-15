@@ -1,13 +1,13 @@
 import datetime
 import glob
 import os
-import textgrid
 import sys
 from collections import deque
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import pandas as pd
 import pysrt
+import textgrid
 from tqdm import tqdm
 
 HOUR = 3_600_000
@@ -45,7 +45,7 @@ def decode_swedia_id(program_id: str) -> Tuple[str, str, str]:
 
 def decode_svt_id(pevi: str) -> Tuple[str, str]:
     program_id, split = pevi.split("-")
-    return location, speaker_id, version
+    return program_id, split
 
 
 def fuse_subtitles(subs: pysrt.SubRipFile) -> pysrt.SubRipFile:

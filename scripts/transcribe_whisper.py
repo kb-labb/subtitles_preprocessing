@@ -1,19 +1,17 @@
 import argparse
-import glob
+import datetime
 import json
 import logging
 import os
-import datetime
 
 import torch
-from tqdm import tqdm
-from transformers import WhisperForConditionalGeneration, AutoProcessor
-
 from sub_preproc.utils.dataset import (
     AudioFileChunkerDataset,
     custom_collate_fn,
     make_transcription_chunks,
 )
+from tqdm import tqdm
+from transformers import AutoProcessor, WhisperForConditionalGeneration
 
 
 def get_args():
@@ -84,10 +82,15 @@ def main():
         torch_dtype=torch.float16,
         device_map=device,
     )
-    processor = AutoProcessor.from_pretrained(args.model_name, sample_rate=16_000, return_tensors="pt")
+    processor = AutoProcessor.from_pretrained(
+        args.model_name, sample_rate=16_000, return_tensors="pt"
+    )
 
     audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files, json_paths=json_files, model_name=args.model_name, processor=processor,
+        audio_paths=audio_files,
+        json_paths=json_files,
+        model_name=args.model_name,
+        processor=processor,
     )
 
     # Create a torch dataloader
