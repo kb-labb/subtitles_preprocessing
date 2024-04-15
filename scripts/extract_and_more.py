@@ -131,28 +131,14 @@ def read_audio(sound_file: str, target_sample_rate) -> np.ndarray:
 
 
 def get_audio_chunk(
-    chunk, audio, sample_rate, model, processor
-) -> Optional[Tuple[Dict[str, Any], np.ndarray, Dict[str, float]]]:
+    chunk, audio, sample_rate
+) -> Optional[Tuple[Dict[str, Any], np.ndarray]]:
     start = chunk["start"]
     end = chunk["end"]
     chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
     if chunk["text"] == "":
         return None
-        # yield chunk, chunk_audio
-    elif model is None:
-        return chunk, chunk_audio, {}
-    else:
-        # _, info = model.transcribe(chunk_audio, vad_filter=True, beam_size=5)
-        # if info.language == "sv" and info.language_probability > 0.5:
-        #     yield chunk, chunk_audio
-        inputs = (
-            processor.feature_extractor(chunk_audio, return_tensors="pt", sampling_rate=16_000)
-            .input_features.to("cuda:0")
-            .to(torch.float16)
-        )
-        language_probs = detect_language(model, processor.tokenizer, inputs)[0]
-        # l, p = max(language_probs.items(), key=lambda x: x[1])
-        return chunk, chunk_audio, language_probs
+    return chunk, chunk_audio
 
 
 def precheck_for_chunks(sub_dict) -> bool:
@@ -352,7 +338,6 @@ def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
         to_log.append(f"could not open {fn_subs} due to JSONDecodeError")
         return to_log
 
-    n_chunks = 0
     # read audio into memory
     audio = read_audio(
         os.path.join(savedir, f"file.{args.sound_format}"),
@@ -365,25 +350,25 @@ def check_and_extract_chunks(fn_subs, args, model, processor, sample_rate):
 
     prev = log_time("read_audio", prev)
 
-    for threshold, chunks_with_threshold_xy in subs_dict["chunks"].items():
-        for i, chunk in enumerate(chunks_with_threshold_xy):
-            _, chunk_audio, language_probs = get_audio_chunk(
-                chunk, audio, sample_rate, model, processor
-            )
-            n_chunks += 1
-            with sf.SoundFile(
-                os.path.join(
-                    savedir,
-                    "chunks",
-                    f"chunk_{threshold}_{i}.{args.chunk_sound_format}",
-                ),
-                "w",
-                args.sample_rate,
-                channels=1,
-            ) as fout:
-                fout.write(chunk_audio)
-            with open(os.path.join(savedir, "chunks", f"chunk_{threshold}_{i}.txt"), "w") as fout:
-                print(chunk["text_whisper"], file=fout)
+    n_chunks = 0
+    for i, chunk in enumerate(subs_dict["chunks"]):
+        _, chunk_audio = get_audio_chunk(
+            chunk, audio, sample_rate
+        )
+        n_chunks += 1
+        with sf.SoundFile(
+            os.path.join(
+                savedir,
+                "chunks",
+                f"chunk_{i}.{args.chunk_sound_format}",
+            ),
+            "w",
+            args.sample_rate,
+            channels=1,
+        ) as fout:
+            fout.write(chunk_audio)
+        with open(os.path.join(savedir, "chunks", f"chunk_{i}.txt"), "w") as fout:
+            print(chunk["text_whisper"], file=fout)
     prev = log_time(str(n_chunks), prev)
     return to_log
 

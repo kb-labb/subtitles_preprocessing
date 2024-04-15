@@ -2,7 +2,7 @@ import argparse
 import json
 import logging
 import os
-from datetime import datetime
+import datetime
 
 import torch
 from sub_preproc.utils.dataset import (
@@ -12,7 +12,7 @@ from sub_preproc.utils.dataset import (
     wav2vec_collate_fn,
 )
 from tqdm import tqdm
-from transformers import AutoModelForCTC, Wav2Vec2CTCTokenizer, Wav2Vec2Processor
+from transformers import AutoModelForCTC, Wav2Vec2CTCTokenizer, Wav2Vec2Processor, Wav2Vec2ProcessorWithLM
 
 
 def get_word_timestamps_hf(word_offsets, time_offset):
@@ -67,7 +67,7 @@ def main():
     json_files = []
     with open(args.json_files) as fh:
         for line in fh:
-            json_files.append(line)
+            json_files.append(line.strip())
 
     audio_files = []
     vad_dicts = []
@@ -86,12 +86,14 @@ def main():
     json_files = [json_file for json_file in json_files if json_file not in empty_json_files]
 
     model = AutoModelForCTC.from_pretrained(args.model_name, torch_dtype=torch.float16).to(device)
-    audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files, json_paths=json_files, model_name=args.model_name
-    )
 
-    processor = Wav2Vec2Processor.from_pretrained(
-        args.model_name, sample_rate=16000, return_tensors="pt"
+    # processor = Wav2Vec2Processor.from_pretrained(
+    #     args.model_name, sample_rate=16000, return_tensors="pt"
+    # )
+    processor = Wav2Vec2ProcessorWithLM.from_pretrained("/home/robkur/workspace/make_kenlm/voxrex_europarl-5gram", sample_rate=16_000, return_tensors="pt")
+
+    audio_dataset = AudioFileChunkerDataset(
+        audio_paths=audio_files, json_paths=json_files, model_name=args.model_name, processor=processor,
     )
 
     dataloader_datasets = torch.utils.data.DataLoader(
@@ -114,7 +116,7 @@ def main():
         dataset = dataset_info[0]["dataset"]
         dataloader_mel = torch.utils.data.DataLoader(
             dataset,
-            batch_size=16,
+            batch_size=64,
             num_workers=4,
             collate_fn=wav2vec_collate_fn,
             pin_memory=True,
@@ -130,9 +132,12 @@ def main():
                 logits = model(batch).logits
 
             probs = torch.nn.functional.softmax(logits, dim=-1)  # Need for CTC segmentation
-            predicted_ids = torch.argmax(logits, dim=-1)
+            # predicted_ids = torch.argmax(logits, dim=-1)
+            # transcription = audio_dataset.processor.batch_decode(
+            #     predicted_ids, output_word_offsets=True
+            # )
             transcription = audio_dataset.processor.batch_decode(
-                predicted_ids, output_word_offsets=True
+                logits.cpu().numpy(), output_word_offsets=True
             )
 
             word_timestamps = get_word_timestamps_hf(

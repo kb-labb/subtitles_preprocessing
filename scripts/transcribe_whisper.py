@@ -3,11 +3,11 @@ import glob
 import json
 import logging
 import os
-from datetime import datetime
+import datetime
 
 import torch
 from tqdm import tqdm
-from transformers import WhisperForConditionalGeneration
+from transformers import WhisperForConditionalGeneration, AutoProcessor
 
 from sub_preproc.utils.dataset import (
     AudioFileChunkerDataset,
@@ -60,7 +60,7 @@ def main():
     json_files = []
     with open(args.json_files) as fh:
         for line in fh:
-            json_files.append(line)
+            json_files.append(line.strip())
 
     audio_files = []
     vad_dicts = []
@@ -84,9 +84,10 @@ def main():
         torch_dtype=torch.float16,
         device_map=device,
     )
+    processor = AutoProcessor.from_pretrained(args.model_name, sample_rate=16_000, return_tensors="pt")
 
     audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files, json_paths=json_files, model_name=args.model_name
+        audio_paths=audio_files, json_paths=json_files, model_name=args.model_name, processor=processor,
     )
 
     # Create a torch dataloader
@@ -106,7 +107,7 @@ def main():
         dataset = dataset_info[0]["dataset"]
         dataloader_mel = torch.utils.data.DataLoader(
             dataset,
-            batch_size=16,
+            batch_size=32,
             num_workers=4,
             pin_memory=True,
             pin_memory_device=f"cuda:{args.gpu_id}",
@@ -152,7 +153,8 @@ def main():
 
         # Save the json file
         with open(dataset_info[0]["json_path"], "w") as f:
-            json.dump(sub_dict, f, ensure_ascii=False, indent=4)
+            # json.dump(sub_dict, f, ensure_ascii=False, indent=4)
+            json.dump(sub_dict, f, indent=4)
 
         logger.info(f"Transcription finished: {dataset_info[0]['json_path']}.")
 
