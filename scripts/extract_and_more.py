@@ -1,33 +1,24 @@
 import argparse
-import csv
 import datetime
-import glob
-import itertools as it
 import json
 import logging
 import os
-import pathlib
-import pickle
 import subprocess as sp
 import time
 from functools import partial
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import librosa
 import numpy as np
 import pysrt
 import soundfile as sf
 import sub_preproc.utils.utils as utils
-import torch
 import torch.multiprocessing as mp
-from sub_preproc.dedup import dup_marker_single, dup_marker_single_list
-from sub_preproc.detect_language import detect_language
+from sub_preproc.dedup import dup_marker_single_list
 from sub_preproc.utils.make_chunks import make_chunks
 from sub_preproc.utils.utils import SILENCE
 
-# from faster_whisper import WhisperModel
 from tqdm import tqdm
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
 
 def get_args() -> argparse.Namespace:
@@ -383,7 +374,7 @@ def compute_chunks_and_load(fn):
         return time.time()
 
     with open(fn, "r") as fh:
-        subs_dict =  compute_chunks(json.load(fh))
+        subs_dict = compute_chunks(json.load(fh))
     prev = log_time("compute_chunks", prev)
     with open(fn, "w") as fh:
         json.dump(subs_dict, fh, indent=4)
@@ -418,7 +409,6 @@ def main():
             worker_fun = partial(process_subs, args=args, seen=seen)
 
         case "compute_chunks":
-
             worker_fun = compute_chunks_and_load
 
         case "extract_audio":

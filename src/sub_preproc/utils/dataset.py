@@ -1,15 +1,8 @@
 import json
-import multiprocessing as mp
-import os
-import subprocess
-import tempfile
 
-import numpy as np
 import soundfile as sf
 import torch
 from torch.utils.data import Dataset
-from tqdm import tqdm
-from transformers import Wav2Vec2Processor, WhisperProcessor, AutoProcessor
 
 
 class AudioDataset(Dataset):
@@ -148,51 +141,6 @@ class AudioFileChunkerDataset(Dataset):
         return out_dict
 
 
-class VADAudioDataset(torch.utils.data.Dataset):
-    def __init__(self, files, sr=16000, chunk_size=30):
-        self.files = files
-        self.sr = sr
-        self.chunk_size = chunk_size
-
-    def __len__(self):
-        return len(self.files)
-
-    def __getitem__(self, idx):
-        audio = self.load_audio(self.files[idx])
-        return audio
-
-    def load_audio(self, file: str):
-        """
-        Open an audio file and read as mono waveform, resampling as necessary
-        A NumPy array containing the audio waveform, in float32 dtype.
-        """
-        try:
-            # Launches a subprocess to decode audio while down-mixing and resampling as necessary.
-            # Requires the ffmpeg CLI to be installed.
-            cmd = [
-                "ffmpeg",
-                "-nostdin",
-                "-threads",
-                "0",
-                "-i",
-                file,
-                "-f",
-                "s16le",
-                "-ac",
-                "1",
-                "-acodec",
-                "pcm_s16le",
-                "-ar",
-                str(self.sr),
-                "-",
-            ]
-            out = subprocess.run(cmd, capture_output=True, check=True).stdout
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
-
-        return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
-
-
 def custom_collate_fn(batch: dict) -> list:
     """
     Collate function to allow dictionaries with Datasets in the batch.
@@ -254,15 +202,3 @@ def make_transcription_chunks_w2v(
         transcription_chunks.append(transcription_dict)
 
     return transcription_chunks
-
-
-def read_json(json_path):
-    with open(json_path) as f:
-        sub_dict = json.load(f)
-    return sub_dict
-
-
-def read_json_parallel(json_paths, num_workers=6):
-    with mp.Pool(num_workers) as pool:
-        sub_dicts = pool.map(read_json, tqdm(json_paths, total=len(json_paths)), chunksize=1)
-    return sub_dicts

@@ -1,8 +1,8 @@
 import argparse
+import datetime
 import json
 import logging
 import os
-import datetime
 
 import torch
 from sub_preproc.utils.dataset import (
@@ -12,7 +12,10 @@ from sub_preproc.utils.dataset import (
     wav2vec_collate_fn,
 )
 from tqdm import tqdm
-from transformers import AutoModelForCTC, Wav2Vec2CTCTokenizer, Wav2Vec2Processor, Wav2Vec2ProcessorWithLM
+from transformers import (
+    AutoModelForCTC,
+    Wav2Vec2ProcessorWithLM,
+)
 
 
 def get_word_timestamps_hf(word_offsets, time_offset):
@@ -94,6 +97,21 @@ def main():
 
     audio_dataset = AudioFileChunkerDataset(
         audio_paths=audio_files, json_paths=json_files, model_name=args.model_name, processor=processor,
+
+    # processor = Wav2Vec2Processor.from_pretrained(
+    #     args.model_name, sample_rate=16000, return_tensors="pt"
+    # )
+    processor = Wav2Vec2ProcessorWithLM.from_pretrained(
+        "/home/robkur/workspace/make_kenlm/voxrex_europarl-5gram",
+        sample_rate=16_000,
+        return_tensors="pt",
+    )
+
+    audio_dataset = AudioFileChunkerDataset(
+        audio_paths=audio_files,
+        json_paths=json_files,
+        model_name=args.model_name,
+        processor=processor,
     )
 
     dataloader_datasets = torch.utils.data.DataLoader(
