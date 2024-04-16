@@ -12,12 +12,13 @@ import librosa
 import numpy as np
 import pysrt
 import soundfile as sf
-import sub_preproc.utils.utils as utils
 import torch.multiprocessing as mp
+from tqdm import tqdm
+
+import sub_preproc.utils.utils as utils
 from sub_preproc.dedup import dup_marker_single_list
 from sub_preproc.utils.make_chunks import make_chunks
 from sub_preproc.utils.utils import SILENCE
-from tqdm import tqdm
 
 
 def get_args() -> argparse.Namespace:
@@ -124,6 +125,7 @@ def get_audio_chunk(chunk, audio, sample_rate) -> Optional[Tuple[Dict[str, Any],
     start = chunk["start"]
     end = chunk["end"]
     chunk_audio = audio[start * sample_rate // 1_000 : end * sample_rate // 1_000]
+    # Might need to run chunk["text"].strip() unless it has been done before in the pipeline
     if chunk["text"] == "":
         return None
     return chunk, chunk_audio
@@ -375,7 +377,7 @@ def compute_chunks_and_load(fn):
         json.dump(subs_dict, fh, indent=4)
     prev = log_time("write dict", prev)
     log_time("total", start)
-    return log_time
+    return to_log
 
 
 def main():

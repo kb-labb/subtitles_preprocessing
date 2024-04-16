@@ -3,6 +3,7 @@ no_silence/*
 input/*
 subs_preprocessed/*
 results/*
+tv3*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

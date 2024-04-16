@@ -9,3 +9,7 @@ pydub==0.25.1
 tiktoken
 numba==0.57.1
 faster-whisper
+num2words
+jiwer
+nltk
+isort

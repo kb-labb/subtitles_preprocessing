@@ -1,8 +1,14 @@
 import json
+import os
+import re
+import subprocess
+import tempfile
 
 import soundfile as sf
 import torch
 from torch.utils.data import Dataset
+
+from sub_preproc.utils.text import clean_subtitle
 
 
 class AudioDataset(Dataset):
@@ -139,6 +145,107 @@ class AudioFileChunkerDataset(Dataset):
         }
 
         return out_dict
+
+
+class RawAudioFileChunkerDataset(Dataset):
+    """
+    Pytorch Dataset that converts audio file to wav, chunks
+    audio file according to start/end times for observations
+    specified in json file.
+
+    Args:
+        audio_paths (list): List of paths to audio files
+        json_paths (list): List of paths to json files
+        out_dir (str): Directory to save audio chunks
+
+    Returns:
+        out_dict (dict): Dictionary with the following keys:
+            "dataset": AudioDataset, or None if error reading audio file
+            "metadata": Metadata from the json file
+            "audio_path": Path to the audio file
+            "json_path": Path to the json file
+    """
+
+    def __init__(self, audio_paths, json_paths, out_dir):
+        self.audio_paths = audio_paths
+        self.json_paths = json_paths
+        self.out_dir = out_dir
+
+    def __len__(self):
+        return len(self.audio_paths)
+
+    def ms_to_frames(self, ms, sr=16000):
+        return int(ms / 1000 * sr)
+
+    def read_audio(self, audio_path):
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            try:
+                convert_audio_to_wav(audio_path, os.path.join(tmpdirname, "tmp.wav"))
+                audio, sr = sf.read(os.path.join(tmpdirname, "tmp.wav"))
+            except Exception as e:
+                print(f"Error reading audio file {audio_path}. {e}")
+                os.makedirs("logs", exist_ok=True)
+                with open("logs/error_audio_files.txt", "a") as f:
+                    f.write(f"{audio_path}\n")
+                return None
+        return audio, sr
+
+    def audio_chunker_to_file(self, audio_path, sub_dict, sr=16000):
+        audio, sr = self.read_audio(audio_path)
+        # Extract filename without extension
+        basename = os.path.basename(audio_path).split(".")[0]
+
+        os.makedirs(self.out_dir, exist_ok=True)
+
+        for i, chunk in enumerate(sub_dict["chunks"]):
+            start_frame = self.ms_to_frames(chunk["start"], sr)
+            end_frame = self.ms_to_frames(chunk["end"], sr)
+
+            # Save audio chunk
+            chunk_audio = audio[start_frame:end_frame]
+            chunk_audio_path = os.path.join(self.out_dir, f"{basename}_{i}.wav")
+
+            with sf.SoundFile(chunk_audio_path, "w", sr, channels=1) as f:
+                f.write(chunk_audio)
+
+            # Save ground truth text
+            text = chunk["text"]
+            text_path = os.path.join(self.out_dir, f"{basename}_{i}.txt")
+
+            with open(text_path, "w") as f:
+                text = clean_subtitle(text)
+                f.write(text)
+
+        return None
+
+    def __getitem__(self, idx):
+        audio_path = self.audio_paths[idx]
+        json_path = self.json_paths[idx]
+
+        with open(json_path) as f:
+            sub_dict = json.load(f)
+
+        self.audio_chunker_to_file(audio_path, sub_dict)
+
+        return None
+
+
+def convert_audio_to_wav(input_file, output_file):
+    # fmt: off
+    command = [
+        'ffmpeg',
+        '-i', input_file,
+        '-ar', '16000',  # Set the audio sample rate to 16kHz
+        '-ac', '1',      # Set the number of audio channels to 1 (mono)
+        '-c:a', 'pcm_s16le',
+        '-loglevel', 'warning',
+        '-hide_banner',
+        '-nostats',
+        '-nostdin',
+        output_file
+    ]
+    # fmt: on
+    subprocess.run(command)
 
 
 def custom_collate_fn(batch: dict) -> list:
