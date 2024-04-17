@@ -119,7 +119,7 @@ def make_chunks(
                                     "text_whisper": subs_to_whisper(chunk),
                                     "text": subs_to_raw_text(chunk),
                                     "transcription": [],
-                                    "sub_ids": sub_ids,
+                                    "sub_ids": [sub["id"]],
                                 }
                             )
                         # chunk = []
