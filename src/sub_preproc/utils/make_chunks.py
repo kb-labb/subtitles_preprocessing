@@ -8,6 +8,7 @@ def make_chunks(
     start_index=1,
     end_index=1,
     surround_silence=True,
+    silent_chunks=False,
 ):
     chunks = []
     chunk = []
@@ -102,7 +103,7 @@ def make_chunks(
                     while sub["duration"] > max_threshold:
                         chunk_start = sub["start"]
                         chunk_end = sub["start"] + max_threshold
-                        if surround_silence:
+                        if silent_chunks:
                             chunks.append(
                                 {
                                     "start": chunk_start,

@@ -132,15 +132,18 @@ def get_audio_chunk(chunk, audio, sample_rate) -> Optional[Tuple[Dict[str, Any],
 
 
 def precheck_for_chunks(sub_dict) -> bool:
-    for chunk in sub_dict["chunks"]:
-        # if it's a silent chunk then there will be only one sub
-        # if it is a non-silent chunk with one sub then check if it isn't silence
-        if len(chunk["subs"]) > 1:
-            return True
-        elif len(chunk["subs"]) == 1:
-            return chunk["subs"][0] != SILENCE
+    non_silent_chunks = [x for x in sub_dict["chunks"] if x["text"] != ""]
+    return len(non_silent_chunks)
 
-    return False
+    # for chunk in sub_dict["chunks"]:
+    #     # if it's a silent chunk then there will be only one sub
+    #     # if it is a non-silent chunk with one sub then check if it isn't silence
+    #     if len(chunk["subs"]) > 1:
+    #         return True
+    #     elif len(chunk["subs"]) == 1:
+    #         return chunk["subs"][0] != SILENCE
+
+    # return False
 
 
 def check_for_sv_subs(videofile: str) -> Optional[int]:
@@ -274,7 +277,6 @@ def compute_chunks(
 
     return subs_dict
 
-
 def extract_audio(fn_video_fn_subs, args):
     # expects one string to be split into two filenames
     fn_video, fn_subs = fn_video_fn_subs.split()
@@ -296,15 +298,17 @@ def extract_audio(fn_video_fn_subs, args):
         to_log.append(f"could not open {fn_subs} due to JSONDecodeError")
         return to_log
 
-    if precheck_for_chunks(subs_dict):
-        prev = log_time("audio?", prev)
-        # extract audio from mp4
-        os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
-        extract_sound(input_file=fn_video, output_path=savedir, sound_format=args.sound_format)
-        subs_dict["metadata"]["audio_path"] = f"{savedir}/file.{args.sound_format}"
-        prev = log_time("extract_audio", prev)
-    with open(fn_subs, "w") as fout:
-        json.dump(subs_dict, fout, indent=4)
+    n_chunks = precheck_for_chunks(subs_dict)
+    if n_chunks > 0:
+        to_log.append(f"extract this {fn_subs} with {n_chunks}")
+    #     prev = log_time("audio?", prev)
+    #     # extract audio from mp4
+    #     os.makedirs(os.path.join(savedir, "chunks"), exist_ok=True)
+    #     extract_sound(input_file=fn_video, output_path=savedir, sound_format=args.sound_format)
+    #     subs_dict["metadata"]["audio_path"] = f"{savedir}/file.{args.sound_format}"
+    #     prev = log_time("extract_audio", prev)
+    # with open(fn_subs, "w") as fout:
+    #     json.dump(subs_dict, fout, indent=4)
 
     return to_log
 
@@ -371,11 +375,17 @@ def compute_chunks_and_load(fn):
         return time.time()
 
     with open(fn, "r") as fh:
-        subs_dict = compute_chunks(json.load(fh))
+        try:
+            subs_dict = compute_chunks(json.load(fh))
+        except json.JSONDecodeError:
+            to_log.append(f"JSONDecodeError for {fn}")
+            return to_log
     prev = log_time("compute_chunks", prev)
+
     with open(fn, "w") as fh:
         json.dump(subs_dict, fh, indent=4)
     prev = log_time("write dict", prev)
+
     log_time("total", start)
     return to_log
 
