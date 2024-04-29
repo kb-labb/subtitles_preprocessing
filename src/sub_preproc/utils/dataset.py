@@ -91,7 +91,19 @@ class AudioFileChunkerDataset(Dataset):
         return int(ms / 1000 * sr)
 
     def read_audio(self, audio_path):
-        return sf.read(audio_path)
+        if audio_path.endswith(".wav"):
+            return sf.read(audio_path)
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            try:
+                convert_audio_to_wav(audio_path, os.path.join(tmpdirname, "tmp.wav"))
+                audio, sr = sf.read(os.path.join(tmpdirname, "tmp.wav"))
+            except Exception as e:
+                print(f"Error reading audio file {audio_path}. {e}")
+                os.makedirs("logs", exist_ok=True)
+                with open("logs/error_audio_files.txt", "a") as f:
+                    f.write(f"{audio_path}\n")
+                return None
+        return audio, sr
 
     def json_chunks(self, sub_dict):
         for chunk in sub_dict["chunks"]:
