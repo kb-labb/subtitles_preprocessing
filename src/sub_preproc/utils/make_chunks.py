@@ -1,6 +1,11 @@
 from sub_preproc.utils.utils import SILENCE
 
 
+def n_non_silent_chunks(sub_dict) -> int:
+    non_silent_chunks = [x for x in sub_dict["chunks"] if x["text"] != ""]
+    return len(non_silent_chunks)
+
+
 def make_chunks(
     subs,
     min_threshold=10_000,

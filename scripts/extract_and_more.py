@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 import sub_preproc.utils.utils as utils
 from sub_preproc.dedup import dup_marker_single_list
-from sub_preproc.utils.make_chunks import make_chunks
+from sub_preproc.utils.make_chunks import make_chunks, n_non_silent_chunks
 from sub_preproc.utils.utils import SILENCE
 
 
@@ -129,21 +129,6 @@ def get_audio_chunk(chunk, audio, sample_rate) -> Optional[Tuple[Dict[str, Any],
     if chunk["text"] == "":
         return None
     return chunk, chunk_audio
-
-
-def precheck_for_chunks(sub_dict) -> bool:
-    non_silent_chunks = [x for x in sub_dict["chunks"] if x["text"] != ""]
-    return len(non_silent_chunks)
-
-    # for chunk in sub_dict["chunks"]:
-    #     # if it's a silent chunk then there will be only one sub
-    #     # if it is a non-silent chunk with one sub then check if it isn't silence
-    #     if len(chunk["subs"]) > 1:
-    #         return True
-    #     elif len(chunk["subs"]) == 1:
-    #         return chunk["subs"][0] != SILENCE
-
-    # return False
 
 
 def check_for_sv_subs(videofile: str) -> Optional[int]:
@@ -277,6 +262,7 @@ def compute_chunks(
 
     return subs_dict
 
+
 def extract_audio(fn_video_fn_subs, args):
     # expects one string to be split into two filenames
     fn_video, fn_subs = fn_video_fn_subs.split()
@@ -298,7 +284,7 @@ def extract_audio(fn_video_fn_subs, args):
         to_log.append(f"could not open {fn_subs} due to JSONDecodeError")
         return to_log
 
-    n_chunks = precheck_for_chunks(subs_dict)
+    n_chunks = n_non_silent_chunks(subs_dict)
     if n_chunks > 0:
         to_log.append(f"extract this {fn_subs} with {n_chunks}")
     #     prev = log_time("audio?", prev)

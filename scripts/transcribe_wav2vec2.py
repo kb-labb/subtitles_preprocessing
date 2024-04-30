@@ -11,6 +11,7 @@ from sub_preproc.utils.dataset import (
     make_transcription_chunks_w2v,
     wav2vec_collate_fn,
 )
+from sub_preproc.utils.make_chunks import n_non_silent_chunks
 from tqdm import tqdm
 from transformers import (
     AutoModelForCTC,
@@ -77,16 +78,21 @@ def main():
     audio_files = []
     vad_dicts = []
     empty_json_files = []
-    for json_file in json_files:
-        with open(json_file) as f:
+    for line in json_files:
+        line = line.split()
+        assert 0 < len(line) and len(line) <= 2
+        with open(line[0]) as f:
             vad_dict = json.load(f)
-            if len(vad_dict["chunks"]) == 0:
+            if n_non_silent_chunks(vad_dict) == 0:
                 # Skip empty or only static audio files
-                empty_json_files.append(json_file)
-                continue
-            # audio_files.append(vad_dict["metadata"]["audio_path"])
-            audio_files.append(json_file[:-5] + ".wav")
-            vad_dicts.append(vad_dict)
+                empty_json_files.append(line)
+            else:
+                # audio_files.append(vad_dict["metadata"]["audio_path"])
+                if len(line) == 2:
+                    audio_files.append(line[1])
+                else:
+                    audio_files.append(line[0][:-5] + ".wav")
+                vad_dicts.append(vad_dict)
 
     json_files = [json_file for json_file in json_files if json_file not in empty_json_files]
 
