@@ -82,17 +82,20 @@ def main():
         line = line.split()
         assert 0 < len(line) and len(line) <= 2
         with open(line[0]) as f:
-            vad_dict = json.load(f)
-            if n_non_silent_chunks(vad_dict) == 0:
-                # Skip empty or only static audio files
-                empty_json_files.append(line)
-            else:
-                # audio_files.append(vad_dict["metadata"]["audio_path"])
-                if len(line) == 2:
-                    audio_files.append(line[1])
+            try:
+                vad_dict = json.load(f)
+                if n_non_silent_chunks(vad_dict) == 0:
+                    # Skip empty or only static audio files
+                    empty_json_files.append(line)
                 else:
-                    audio_files.append(line[0][:-5] + ".wav")
-                vad_dicts.append(vad_dict)
+                    # audio_files.append(vad_dict["metadata"]["audio_path"])
+                    if len(line) == 2:
+                        audio_files.append(line[1])
+                    else:
+                        audio_files.append(line[0][:-5] + ".wav")
+                    vad_dicts.append(vad_dict)
+            except json.JSONDecodeError:
+                logging.info(f"failed reading json-file {line[0]}")
 
     json_files = [json_file for json_file in json_files if json_file not in empty_json_files]
 
