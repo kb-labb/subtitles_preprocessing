@@ -8,13 +8,11 @@ import torch
 from sub_preproc.utils.dataset import (
     AudioFileChunkerDataset,
     custom_collate_fn,
-    make_transcription_chunks,
 )
 from sub_preproc.utils.make_chunks import n_non_silent_chunks
 from tqdm import tqdm
 from transformers import AutoProcessor, WhisperForConditionalGeneration
-from sub_preproc.detect_language import detect_language, get_language_probs
-
+from sub_preproc.detect_language import get_language_probs
 
 
 def get_args():
@@ -44,7 +42,7 @@ def get_args():
 
 def top_n_lang(language_probs, n=5):
     lp = sorted(language_probs.items(), key=lambda x: -x[1])
-    result = {l: p for l,p in lp[:n]}
+    result = {l: p for l, p in lp[:n]}
     if "sv" not in result.keys():
         result["sv"] = language_probs["sv"]
     return result
@@ -118,7 +116,6 @@ def main():
     )
 
     for dataset_info in tqdm(dataloader_datasets):
-
         dataset = dataset_info[0]["dataset"]
         dataloader_mel = torch.utils.data.DataLoader(
             dataset,
@@ -133,16 +130,15 @@ def main():
         for batch in dataloader_mel:
             batch = batch.to(device).half()
             predicted_ids = model.generate(
-                                batch,
-                                return_dict_in_generate=True,
-                                task="transcribe",
-                                output_scores=True,
-                                max_length=1,
-                                )
-            _, _, dl = get_language_probs(predicted_ids["scores"][0]) 
+                batch,
+                return_dict_in_generate=True,
+                task="transcribe",
+                output_scores=True,
+                max_length=1,
+            )
+            _, _, dl = get_language_probs(predicted_ids["scores"][0])
             detected_langs.extend(dl)
             # detected_langs.extend(detect_language(model, processor.tokenizer, batch))
-
 
         # Add transcription to the json file
         sub_dict = dataset.sub_dict
@@ -153,7 +149,6 @@ def main():
                 chunk["language_probs"] = {args.model_name: top_n_lang(detected_langs[i])}
             elif args.model_name not in chunk["language_probs"] and not args.overwrite_model:
                 chunk["language_probs"][args.model_name] = top_n_lang(detected_langs[i])
-
 
         # Save the json file
         with open(dataset_info[0]["json_path"], "w") as f:
