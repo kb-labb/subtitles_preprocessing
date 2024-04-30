@@ -70,7 +70,6 @@ def main():
             try:
                 vad_dict = json.load(f)
                 if n_non_silent_chunks(vad_dict) >= 1:
-                    # audio_files.append(vad_dict["metadata"]["audio_path"])
                     non_empty_json_files.append(line[0])
                     if len(line) == 2:
                         audio_files.append(line[1])
