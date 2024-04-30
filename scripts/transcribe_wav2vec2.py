@@ -76,25 +76,24 @@ def main():
             json_files.append(line.strip())
 
     audio_files = []
-    vad_dicts = []
-    empty_json_files = []
+    non_empty_json_files = []
     for line in json_files:
         line = line.split()
         assert 0 < len(line) and len(line) <= 2
         with open(line[0]) as f:
-            vad_dict = json.load(f)
-            if n_non_silent_chunks(vad_dict) == 0:
-                # Skip empty or only static audio files
-                empty_json_files.append(line)
-            else:
-                # audio_files.append(vad_dict["metadata"]["audio_path"])
-                if len(line) == 2:
-                    audio_files.append(line[1])
-                else:
-                    audio_files.append(line[0][:-5] + ".wav")
-                vad_dicts.append(vad_dict)
+            try:
+                vad_dict = json.load(f)
+                if n_non_silent_chunks(vad_dict) >= 1:
+                    non_empty_json_files.append(line[0])
+                    # audio_files.append(vad_dict["metadata"]["audio_path"])
+                    if len(line) == 2:
+                        audio_files.append(line[1])
+                    else:
+                        audio_files.append(line[0][:-5] + ".wav")
+            except json.JSONDecodeError:
+                logging.info(f"failed reading json-file {line[0]}")
 
-    json_files = [json_file for json_file in json_files if json_file not in empty_json_files]
+    json_files = non_empty_json_files
 
     model = AutoModelForCTC.from_pretrained(args.model_name, torch_dtype=torch.float16).to(device)
 
@@ -137,7 +136,7 @@ def main():
         dataset = dataset_info[0]["dataset"]
         dataloader_mel = torch.utils.data.DataLoader(
             dataset,
-            batch_size=64,
+            batch_size=16,
             num_workers=4,
             collate_fn=wav2vec_collate_fn,
             pin_memory=True,
