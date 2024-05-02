@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from sub_preproc.utils.text import clean_subtitle
-
+from sub_preproc.utils.make_chunks import n_non_silent_chunks
 
 class AudioDataset(Dataset):
     """
@@ -38,7 +38,6 @@ class AudioFileChunkerDataset(Dataset):
     specified in json file, and preprocesses data to spectograms.
 
     Args:
-        audio_paths (list): List of paths to audio files
         json_paths (list): List of paths to json files
         model_name (str): Model name to use for the processor
 
@@ -52,12 +51,12 @@ class AudioFileChunkerDataset(Dataset):
             "is_langdetected": Whether the audio has been language detected
     """
 
-    def __init__(self, audio_paths, json_paths, model_name, processor, chunks_or_subs="chunks", my_filter=None):
-        self.audio_paths = audio_paths
+    def __init__(self, json_paths, model_name, processor, logger, chunks_or_subs="chunks", my_filter=None):
         self.json_paths = json_paths
         self.model_name = model_name
         self.processor = processor
         self.chunks_or_subs = chunks_or_subs
+        self.logger = logger
         if my_filter is None:
             self.my_filter = lambda x: True
         else:
@@ -68,7 +67,7 @@ class AudioFileChunkerDataset(Dataset):
         #     self.processor = AutoProcessor.from_pretrained(model_name)
 
     def __len__(self):
-        return len(self.audio_paths)
+        return len(self.json_paths)
 
     def check_if_transcribed(self, sub_dict):
         """
@@ -123,11 +122,55 @@ class AudioFileChunkerDataset(Dataset):
             yield audio[start_frame:end_frame]
 
     def __getitem__(self, idx):
-        audio_path = self.audio_paths[idx]
         json_path = self.json_paths[idx]
+        if len(json_path.split()) == 2:
+            json_path, audio_path = json_path.split()
+        else:
+            audio_path = None
+
 
         with open(json_path) as f:
-            sub_dict = json.load(f)
+            try:
+                sub_dict = json.load(f)
+                if "audio_path" in sub_dict["metadata"]:
+                    audio_path = sub_dict["metadata"]["audio_path"] 
+                if n_non_silent_chunks(sub_dict) == 0:
+                    out_dict = {
+                        "dataset": None,
+                        "metadata": sub_dict["metadata"],
+                        "audio_path": audio_path,
+                        "json_path": json_path,
+                        "is_transcribed": None,
+                        "is_transcribed_same_model": None,
+                        "is_langdetected": None,
+                    }
+                    return out_dict
+            except json.JSONDecodeError:
+                self.logger.info(f"failed reading json-file {json_path}")
+                out_dict = {
+                    "dataset": None,
+                    "metadata": None,
+                    "audio_path": audio_path,
+                    "json_path": json_path,
+                    "is_transcribed": None,
+                    "is_transcribed_same_model": None,
+                    "is_langdetected": None,
+                }
+                return out_dict
+
+        if not audio_path:
+           self.logger.info(f"no audio path for  {json_path}")
+           out_dict = {
+               "dataset": None,
+               "metadata": None,
+               "audio_path": audio_path,
+               "json_path": json_path,
+               "is_transcribed": None,
+               "is_transcribed_same_model": None,
+               "is_langdetected": None,
+           }
+           return out_dict
+            
 
         spectograms = []
         for audio_chunk in self.audio_chunker(audio_path, sub_dict):
@@ -141,9 +184,22 @@ class AudioFileChunkerDataset(Dataset):
                 ).input_values
             )
 
+
         if "whisper" in self.model_name:
             # Wav2vec2 processor doesn't pad up to 30s by default
-            spectograms = torch.cat(spectograms, dim=0)
+            try:
+                spectograms = torch.cat(spectograms, dim=0)
+            except Exception as e:
+                out_dict = {
+                    "dataset": None,
+                    "metadata": sub_dict["metadata"],
+                    "audio_path": audio_path,
+                    "json_path": json_path,
+                    "is_transcribed": None,
+                    "is_transcribed_same_model": None,
+                    "is_langdetected": None,
+                }
+                return out_dict
 
         mel_dataset = AudioDataset(spectograms, sub_dict)
 

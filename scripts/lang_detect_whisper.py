@@ -70,26 +70,26 @@ def main():
         for line in fh:
             json_files.append(line.strip())
 
-    audio_files = []
-    non_empty_json_files = []
-    logging.info("Checking json-files...")
-    for line in tqdm(json_files):
-        line = line.split()
-        assert 0 < len(line) and len(line) <= 2
-        with open(line[0]) as f:
-            try:
-                vad_dict = json.load(f)
-                if n_non_silent_chunks(vad_dict) >= 1:
-                    # audio_files.append(vad_dict["metadata"]["audio_path"])
-                    non_empty_json_files.append(line[0])
-                    if len(line) == 2:
-                        audio_files.append(line[1])
-                    else:
-                        audio_files.append(line[0][:-5] + ".wav")
-            except json.JSONDecodeError:
-                logging.info(f"failed reading json-file {line[0]}")
+    # audio_files = []
+    # non_empty_json_files = []
+    # logging.info("Checking json-files...")
+    # for line in tqdm(json_files):
+    #     line = line.split()
+    #     assert 0 < len(line) and len(line) <= 2
+    #     with open(line[0]) as f:
+    #         try:
+    #             vad_dict = json.load(f)
+    #             if n_non_silent_chunks(vad_dict) >= 1:
+    #                 # audio_files.append(vad_dict["metadata"]["audio_path"])
+    #                 non_empty_json_files.append(line[0])
+    #                 if len(line) == 2:
+    #                     audio_files.append(line[1])
+    #                 else:
+    #                     audio_files.append(line[0][:-5] + ".wav")
+    #         except json.JSONDecodeError:
+    #             logging.info(f"failed reading json-file {line[0]}")
 
-    json_files = non_empty_json_files
+    # json_files = non_empty_json_files
 
     model = WhisperForConditionalGeneration.from_pretrained(
         args.model_name,
@@ -103,64 +103,70 @@ def main():
 
     my_filter = lambda x: x["duration"] > 20_000
     audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files,
         json_paths=json_files,
         model_name=args.model_name,
         processor=processor,
         chunks_or_subs="chunks",
         my_filter=my_filter,
+        logger=logger,
     )
 
     # Create a torch dataloader
     dataloader_datasets = torch.utils.data.DataLoader(
         audio_dataset,
         batch_size=1,
-        num_workers=3,
+        num_workers=4,
+        prefetch_factor=4,
         collate_fn=custom_collate_fn,
         shuffle=False,
     )
 
     for dataset_info in tqdm(dataloader_datasets):
-        dataset = dataset_info[0]["dataset"]
-        dataloader_mel = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=args.batch_size,
-            num_workers=4,
-            pin_memory=True,
-            pin_memory_device=f"cuda:{args.gpu_id}",
-            shuffle=False,
-        )
-
-        detected_langs = []
-        for batch in dataloader_mel:
-            batch = batch.to(device).half()
-            predicted_ids = model.generate(
-                batch,
-                return_dict_in_generate=True,
-                task="transcribe",
-                output_scores=True,
-                max_length=1,
+        try:
+            if dataset_info[0]["dataset"] is None:
+                continue
+            dataset = dataset_info[0]["dataset"]
+            dataloader_mel = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=args.batch_size,
+                num_workers=4,
+                pin_memory=True,
+                pin_memory_device=f"cuda:{args.gpu_id}",
+                shuffle=False,
             )
-            _, _, dl = get_language_probs(predicted_ids["scores"][0])
-            detected_langs.extend(dl)
-            # detected_langs.extend(detect_language(model, processor.tokenizer, batch))
 
-        # Add transcription to the json file
-        sub_dict = dataset.sub_dict
-        assert len(list(filter(lambda x: my_filter(x), sub_dict["chunks"]))) == len(detected_langs)
+            detected_langs = []
+            for batch in dataloader_mel:
+                batch = batch.to(device).half()
+                predicted_ids = model.generate(
+                    batch,
+                    return_dict_in_generate=True,
+                    task="transcribe",
+                    output_scores=True,
+                    max_length=1,
+                )
+                _, _, dl = get_language_probs(predicted_ids["scores"][0])
+                detected_langs.extend(dl)
+                # detected_langs.extend(detect_language(model, processor.tokenizer, batch))
 
-        for i, chunk in enumerate(filter(lambda x: my_filter(x), sub_dict["chunks"])):
-            if args.overwrite_all or "language_probs" not in chunk:
-                chunk["language_probs"] = {args.model_name: top_n_lang(detected_langs[i])}
-            elif args.model_name not in chunk["language_probs"] and not args.overwrite_model:
-                chunk["language_probs"][args.model_name] = top_n_lang(detected_langs[i])
+            # Add transcription to the json file
+            sub_dict = dataset.sub_dict
+            assert len(list(filter(lambda x: my_filter(x), sub_dict["chunks"]))) == len(detected_langs)
 
-        # Save the json file
-        with open(dataset_info[0]["json_path"], "w") as f:
-            # json.dump(sub_dict, f, ensure_ascii=False, indent=4)
-            json.dump(sub_dict, f, indent=4)
+            for i, chunk in enumerate(filter(lambda x: my_filter(x), sub_dict["chunks"])):
+                if args.overwrite_all or "language_probs" not in chunk:
+                    chunk["language_probs"] = {args.model_name: top_n_lang(detected_langs[i])}
+                elif args.model_name not in chunk["language_probs"] and not args.overwrite_model:
+                    chunk["language_probs"][args.model_name] = top_n_lang(detected_langs[i])
 
-        logger.info(f"Transcription finished: {dataset_info[0]['json_path']}.")
+            # Save the json file
+            with open(dataset_info[0]["json_path"], "w") as f:
+                # json.dump(sub_dict, f, ensure_ascii=False, indent=4)
+                json.dump(sub_dict, f, indent=4)
+
+            logger.info(f"Transcription finished: {dataset_info[0]['json_path']}.")
+        except Exception as e:
+            logger.info(f"Transcription failed: {dataset_info[0]['json_path']}. Exception was {e}")
 
 
 if __name__ == "__main__":
