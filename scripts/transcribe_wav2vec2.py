@@ -75,24 +75,24 @@ def main():
         for line in fh:
             json_files.append(line.strip())
 
-    audio_files = []
-    non_empty_json_files = []
-    for line in json_files:
-        line = line.split()
-        assert 0 < len(line) and len(line) <= 2
-        with open(line[0]) as f:
-            try:
-                vad_dict = json.load(f)
-                if n_non_silent_chunks(vad_dict) >= 1:
-                    non_empty_json_files.append(line[0])
-                    if len(line) == 2:
-                        audio_files.append(line[1])
-                    else:
-                        audio_files.append(line[0][:-5] + ".wav")
-            except json.JSONDecodeError:
-                logging.info(f"failed reading json-file {line[0]}")
+    # audio_files = []
+    # non_empty_json_files = []
+    # for line in json_files:
+    #     line = line.split()
+    #     assert 0 < len(line) and len(line) <= 2
+    #     with open(line[0]) as f:
+    #         try:
+    #             vad_dict = json.load(f)
+    #             if n_non_silent_chunks(vad_dict) >= 1:
+    #                 non_empty_json_files.append(line[0])
+    #                 if len(line) == 2:
+    #                     audio_files.append(line[1])
+    #                 else:
+    #                     audio_files.append(line[0][:-5] + ".wav")
+    #         except json.JSONDecodeError:
+    #             logging.info(f"failed reading json-file {line[0]}")
 
-    json_files = non_empty_json_files
+    # json_files = non_empty_json_files
 
     model = AutoModelForCTC.from_pretrained(args.model_name, torch_dtype=torch.float16).to(device)
 
@@ -109,10 +109,10 @@ def main():
     # )
 
     audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files,
         json_paths=json_files,
         model_name=args.model_name,
         processor=processor,
+        logger=logger,
     )
 
     dataloader_datasets = torch.utils.data.DataLoader(
