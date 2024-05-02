@@ -52,11 +52,16 @@ class AudioFileChunkerDataset(Dataset):
             "is_langdetected": Whether the audio has been language detected
     """
 
-    def __init__(self, audio_paths, json_paths, model_name, processor):
+    def __init__(self, audio_paths, json_paths, model_name, processor, chunks_or_subs="chunks", my_filter=None):
         self.audio_paths = audio_paths
         self.json_paths = json_paths
         self.model_name = model_name
         self.processor = processor
+        self.chunks_or_subs = chunks_or_subs
+        if my_filter is None:
+            self.my_filter = lambda x: True
+        else:
+            self.my_filter = my_filter
         # if "whisper" in model_name:
         #     self.processor = WhisperProcessor.from_pretrained(model_name)
         # elif "wav2vec2" in model_name:
@@ -70,14 +75,14 @@ class AudioFileChunkerDataset(Dataset):
         We include information about whether transcription and langdetect has already been
         performed (using the same model). Useful for skipping already transcribed files.
         """
-        if "transcription" in sub_dict["chunks"][0]:
-            models = [t["model"] for t in sub_dict["chunks"][0]["transcription"]]
-            is_transcribed = True if len(sub_dict["chunks"][0]["transcription"]) > 0 else False
+        if "transcription" in sub_dict[self.chunks_or_subs][0]:
+            models = [t["model"] for t in sub_dict[self.chunks_or_subs][0]["transcription"]]
+            is_transcribed = True if len(sub_dict[self.chunks_or_subs][0]["transcription"]) > 0 else False
             is_transcribed_same_model = self.model_name in models
             is_langdetected = any(
                 [
                     ("language" in transcription)
-                    for transcription in sub_dict["chunks"][0]["transcription"]
+                    for transcription in sub_dict[self.chunks_or_subs][0]["transcription"]
                 ]
             )
         else:
@@ -106,7 +111,7 @@ class AudioFileChunkerDataset(Dataset):
         return audio, sr
 
     def json_chunks(self, sub_dict):
-        for chunk in sub_dict["chunks"]:
+        for chunk in filter(lambda x: self.my_filter(x), sub_dict[self.chunks_or_subs]):
             yield chunk["start"], chunk["end"]
 
     def audio_chunker(self, audio_path, sub_dict, sr=16000):

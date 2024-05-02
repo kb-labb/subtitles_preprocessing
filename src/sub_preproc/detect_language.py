@@ -265,3 +265,5 @@ def get_language_probs(scores):
     all_languages = all_languages.to("cpu").tolist()
 
     all_languages = [{lang: prob for lang, prob in zip(keys, langs)} for langs in all_languages]
+
+    return top_language, top_language_probs, all_languages

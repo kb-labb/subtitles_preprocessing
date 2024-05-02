@@ -37,6 +37,7 @@ def get_args():
         help="Overwrite existing transcriptions for the model.",
     )
     argparser.add_argument("--json_files", type=str, required=True)
+    argparser.add_argument("--batch_size", type=int, default=16)
     return argparser.parse_args()
 
 
@@ -71,7 +72,8 @@ def main():
 
     audio_files = []
     non_empty_json_files = []
-    for line in json_files:
+    logging.info("Checking json-files...")
+    for line in tqdm(json_files):
         line = line.split()
         assert 0 < len(line) and len(line) <= 2
         with open(line[0]) as f:
@@ -99,11 +101,14 @@ def main():
         args.model_name, sample_rate=16_000, return_tensors="pt"
     )
 
+    my_filter = lambda x: x["duration"] > 20_000
     audio_dataset = AudioFileChunkerDataset(
         audio_paths=audio_files,
         json_paths=json_files,
         model_name=args.model_name,
         processor=processor,
+        chunks_or_subs="chunks",
+        my_filter=my_filter,
     )
 
     # Create a torch dataloader
@@ -119,7 +124,7 @@ def main():
         dataset = dataset_info[0]["dataset"]
         dataloader_mel = torch.utils.data.DataLoader(
             dataset,
-            batch_size=56,
+            batch_size=args.batch_size,
             num_workers=4,
             pin_memory=True,
             pin_memory_device=f"cuda:{args.gpu_id}",
@@ -142,9 +147,9 @@ def main():
 
         # Add transcription to the json file
         sub_dict = dataset.sub_dict
-        assert len(sub_dict["chunks"]) == len(detected_langs)
+        assert len(list(filter(lambda x: my_filter(x), sub_dict["chunks"]))) == len(detected_langs)
 
-        for i, chunk in enumerate(sub_dict["chunks"]):
+        for i, chunk in enumerate(filter(lambda x: my_filter(x), sub_dict["chunks"])):
             if args.overwrite_all or "language_probs" not in chunk:
                 chunk["language_probs"] = {args.model_name: top_n_lang(detected_langs[i])}
             elif args.model_name not in chunk["language_probs"] and not args.overwrite_model:
