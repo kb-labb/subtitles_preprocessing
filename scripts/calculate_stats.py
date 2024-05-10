@@ -10,7 +10,7 @@ def get_args() -> argparse.Namespace:
     "--json_files",
     type=str,
     help="Path to file containing json filepaths",
-    default="/home/jussik/youtube_multiprocess.txt",
+    default="files.txt",
     )
     
     parser.add_argument(
