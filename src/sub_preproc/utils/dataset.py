@@ -158,20 +158,19 @@ class AudioFileChunkerDataset(Dataset):
                 }
                 return out_dict
 
-        if not audio_path:
-           self.logger.info(f"no audio path for  {json_path}")
-           out_dict = {
-               "dataset": None,
-               "metadata": None,
-               "audio_path": audio_path,
-               "json_path": json_path,
-               "is_transcribed": None,
-               "is_transcribed_same_model": None,
-               "is_langdetected": None,
-           }
-           return out_dict
+        if not audio_path or not os.path.isfile(audio_path):
+            self.logger.info(f"no audio path for  {json_path}")
+            out_dict = {
+                "dataset": None,
+                "metadata": None,
+                "audio_path": audio_path,
+                "json_path": json_path,
+                "is_transcribed": None,
+                "is_transcribed_same_model": None,
+                "is_langdetected": None,
+            }
+            return out_dict
             
-
         spectograms = []
         for audio_chunk in self.audio_chunker(audio_path, sub_dict):
             spectograms.append(

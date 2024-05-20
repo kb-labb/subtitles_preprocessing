@@ -65,6 +65,7 @@ def main():
     device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() else "cpu")
 
     # read vad json
+    logger.info("Reading json-file list")
     json_files = []
     with open(args.json_files) as fh:
         for line in fh:
@@ -121,6 +122,7 @@ def main():
         shuffle=False,
     )
 
+    logger.info("Iterate over outer dataloader")
     for dataset_info in tqdm(dataloader_datasets):
         try:
             if dataset_info[0]["dataset"] is None:

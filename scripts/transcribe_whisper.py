@@ -37,6 +37,7 @@ def get_args():
         help="Overwrite existing transcriptions for the model.",
     )
     argparser.add_argument("--json_files", type=str, required=True)
+    argparser.add_argument("--batch_size", type=int, default=16)
     return argparser.parse_args()
 
 
@@ -61,24 +62,24 @@ def main():
         for line in fh:
             json_files.append(line.strip())
 
-    audio_files = []
-    non_empty_json_files = []
-    for line in json_files:
-        line = line.split()
-        assert 0 < len(line) and len(line) <= 2
-        with open(line[0]) as f:
-            try:
-                vad_dict = json.load(f)
-                if n_non_silent_chunks(vad_dict) >= 1:
-                    non_empty_json_files.append(line[0])
-                    if len(line) == 2:
-                        audio_files.append(line[1])
-                    else:
-                        audio_files.append(line[0][:-5] + ".wav")
-            except json.JSONDecodeError:
-                logging.info(f"failed reading json-file {line[0]}")
+    # audio_files = []
+    # non_empty_json_files = []
+    # for line in json_files:
+    #     line = line.split()
+    #     assert 0 < len(line) and len(line) <= 2
+    #     with open(line[0]) as f:
+    #         try:
+    #             vad_dict = json.load(f)
+    #             if n_non_silent_chunks(vad_dict) >= 1:
+    #                 non_empty_json_files.append(line[0])
+    #                 if len(line) == 2:
+    #                     audio_files.append(line[1])
+    #                 else:
+    #                     audio_files.append(line[0][:-5] + ".wav")
+    #         except json.JSONDecodeError:
+    #             logging.info(f"failed reading json-file {line[0]}")
 
-    json_files = non_empty_json_files
+    # json_files = non_empty_json_files
 
     model = WhisperForConditionalGeneration.from_pretrained(
         args.model_name,
@@ -90,80 +91,89 @@ def main():
         args.model_name, sample_rate=16_000, return_tensors="pt"
     )
 
+    def my_filter(x):
+        return x["any_subs_swedish"] 
+
     audio_dataset = AudioFileChunkerDataset(
-        audio_paths=audio_files,
         json_paths=json_files,
         model_name=args.model_name,
         processor=processor,
+        chunks_or_subs="chunks",
+        my_filter=my_filter,
+        logger=logger,
     )
 
     # Create a torch dataloader
     dataloader_datasets = torch.utils.data.DataLoader(
         audio_dataset,
         batch_size=1,
-        num_workers=3,
+        num_workers=4,
+        prefetch_factor=4,
         collate_fn=custom_collate_fn,
         shuffle=False,
     )
 
     for dataset_info in tqdm(dataloader_datasets):
-        if dataset_info[0]["is_transcribed_same_model"]:
-            logger.info(f"Already transcribed: {dataset_info[0]['json_path']}.")
-            continue  # Skip already transcribed videos
+        try:
+            if dataset_info[0]["is_transcribed_same_model"]:
+                logger.info(f"Already transcribed: {dataset_info[0]['json_path']}.")
+                continue  # Skip already transcribed videos
 
-        dataset = dataset_info[0]["dataset"]
-        dataloader_mel = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=16,
-            num_workers=4,
-            pin_memory=True,
-            pin_memory_device=f"cuda:{args.gpu_id}",
-            shuffle=False,
-        )
-
-        transcription_texts = []
-
-        for batch in dataloader_mel:
-            batch = batch.to(device).half()
-            predicted_ids = model.generate(
-                batch,
-                return_dict_in_generate=True,
-                task="transcribe",
-                language="sv",
-                output_scores=True,
-                max_length=args.max_length,
-            )
-            transcription = audio_dataset.processor.batch_decode(
-                predicted_ids["sequences"], skip_special_tokens=True
+            dataset = dataset_info[0]["dataset"]
+            dataloader_mel = torch.utils.data.DataLoader(
+                dataset,
+                batch_size=args.batch_size,
+                num_workers=4,
+                pin_memory=True,
+                pin_memory_device=f"cuda:{args.gpu_id}",
+                shuffle=False,
             )
 
-            transcription_chunk = make_transcription_chunks(transcription, args.model_name)
-            transcription_texts.extend(transcription_chunk)
+            transcription_texts = []
 
-        # Add transcription to the json file
-        sub_dict = dataset.sub_dict
-        assert len(sub_dict["chunks"]) == len(transcription_texts)
+            for batch in dataloader_mel:
+                batch = batch.to(device).half()
+                predicted_ids = model.generate(
+                    batch,
+                    return_dict_in_generate=True,
+                    task="transcribe",
+                    language="sv",
+                    output_scores=True,
+                    max_length=args.max_length,
+                )
+                transcription = audio_dataset.processor.batch_decode(
+                    predicted_ids["sequences"], skip_special_tokens=True
+                )
 
-        for i, chunk in enumerate(sub_dict["chunks"]):
-            if args.overwrite_all or "transcription" not in chunk:
-                chunk["transcription"] = [transcription_texts[i]]
-            elif "transcription" in chunk:
-                if args.overwrite_model:
-                    for j, transcription in enumerate(chunk["transcription"]):
-                        if transcription["model"] == args.model_name:
-                            chunk["transcription"][j] = transcription_texts[i]
-                else:
-                    models = [transcription["model"] for transcription in chunk["transcription"]]
-                    # Check if transcription already exists for the model
-                    if args.model_name not in models:
-                        chunk["transcription"].append(transcription_texts[i])
+                transcription_chunk = make_transcription_chunks(transcription, args.model_name)
+                transcription_texts.extend(transcription_chunk)
 
-        # Save the json file
-        with open(dataset_info[0]["json_path"], "w") as f:
-            # json.dump(sub_dict, f, ensure_ascii=False, indent=4)
-            json.dump(sub_dict, f, indent=4)
+            # Add transcription to the json file
+            sub_dict = dataset.sub_dict
+            assert len(sub_dict["chunks"]) == len(transcription_texts)
 
-        logger.info(f"Transcription finished: {dataset_info[0]['json_path']}.")
+            for i, chunk in enumerate(sub_dict["chunks"]):
+                if args.overwrite_all or "transcription" not in chunk:
+                    chunk["transcription"] = [transcription_texts[i]]
+                elif "transcription" in chunk:
+                    if args.overwrite_model:
+                        for j, transcription in enumerate(chunk["transcription"]):
+                            if transcription["model"] == args.model_name:
+                                chunk["transcription"][j] = transcription_texts[i]
+                    else:
+                        models = [transcription["model"] for transcription in chunk["transcription"]]
+                        # Check if transcription already exists for the model
+                        if args.model_name not in models:
+                            chunk["transcription"].append(transcription_texts[i])
+
+            # Save the json file
+            with open(dataset_info[0]["json_path"], "w") as f:
+                # json.dump(sub_dict, f, ensure_ascii=False, indent=4)
+                json.dump(sub_dict, f, indent=4)
+
+            logger.info(f"Transcription finished: {dataset_info[0]['json_path']}.")
+        except Exception as e:
+            logger.info(f"Transcription failed: {dataset_info[0]['json_path']}. Exception was {e}")
 
 
 if __name__ == "__main__":
