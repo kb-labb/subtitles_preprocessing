@@ -2,7 +2,7 @@ import re
 import string
 import unicodedata
 
-import num2words
+from num2words import num2words
 
 from sub_preproc.utils.strings_sv import abbreviations, ocr_corrections, symbols
 
