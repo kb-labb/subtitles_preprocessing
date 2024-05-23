@@ -1,4 +1,6 @@
 chunks/*
+metadata/*
+audio_chunks/*
 no_silence/*
 input/*
 subs_preprocessed/*

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import csv
 import subprocess
 import tempfile
 
@@ -158,19 +159,20 @@ class AudioFileChunkerDataset(Dataset):
                 }
                 return out_dict
 
-        if not audio_path or not os.path.isfile(audio_path):
-            self.logger.info(f"no audio path for  {json_path}")
-            out_dict = {
-                "dataset": None,
-                "metadata": None,
-                "audio_path": audio_path,
-                "json_path": json_path,
-                "is_transcribed": None,
-                "is_transcribed_same_model": None,
-                "is_langdetected": None,
-            }
-            return out_dict
+        if not audio_path:
+           self.logger.info(f"no audio path for  {json_path}")
+           out_dict = {
+               "dataset": None,
+               "metadata": None,
+               "audio_path": audio_path,
+               "json_path": json_path,
+               "is_transcribed": None,
+               "is_transcribed_same_model": None,
+               "is_langdetected": None,
+           }
+           return out_dict
             
+
         spectograms = []
         for audio_chunk in self.audio_chunker(audio_path, sub_dict):
             spectograms.append(
@@ -266,28 +268,30 @@ class RawAudioFileChunkerDataset(Dataset):
         audio, sr = self.read_audio(audio_path)
         # Extract filename without extension
         basename = os.path.basename(audio_path).split(".")[0]
-
-        os.makedirs(self.out_dir, exist_ok=True)
-
+        filters = ["stage1_whisper", "stage2_whisper", "stage2_whisper_timestamps", "stage1_wav2vec"] 
+        for x in filters:
+            os.makedirs(self.out_dir+"/"+x, exist_ok=True)
         for i, chunk in enumerate(sub_dict["chunks"]):
             start_frame = self.ms_to_frames(chunk["start"], sr)
             end_frame = self.ms_to_frames(chunk["end"], sr)
-
+            
             # Save audio chunk
             chunk_audio = audio[start_frame:end_frame]
-            chunk_audio_path = os.path.join(self.out_dir, f"{basename}_{i}.wav")
+            for x in filters:
+                if chunk["filters"]:
+                    if chunk["filters"][x]==True:
+                        if chunk["filters"]["stage1_whisper"]==True:
+                            chunk_audio_path = os.path.join(self.out_dir, "stage1_whisper", f"{basename}_{i}.wav")
+                            with sf.SoundFile(chunk_audio_path, "w", sr, channels=1) as f:
+                                f.write(chunk_audio)
+                        # Save ground truth text
+                        text = chunk["text_whisper"]
+                        text_path = os.path.join(self.out_dir, x, f"{basename}_{i}.txt")
 
-            with sf.SoundFile(chunk_audio_path, "w", sr, channels=1) as f:
-                f.write(chunk_audio)
-
-            # Save ground truth text
-            text = chunk["text"]
-            text_path = os.path.join(self.out_dir, f"{basename}_{i}.txt")
-
-            with open(text_path, "w") as f:
-                text = clean_subtitle(text)
-                f.write(text)
-
+                        with open(text_path, "w") as f:
+                            text = clean_subtitle(text)
+                            f.write(text)
+        
         return None
 
     def __getitem__(self, idx):
