@@ -82,7 +82,9 @@ def main():
 
     json_files = []
     with open(args.json_files) as fh:
+        print('fh ', fh)
         for line in fh:
+            print('line ', line)
             json_files.append(line.strip())
 
     audio_files = []
@@ -98,7 +100,7 @@ def main():
     dataloader_datasets = torch.utils.data.DataLoader(
         audio_dataset,
         batch_size=1,
-        num_workers=3,
+        num_workers=6,
         collate_fn=custom_collate_fn,
         shuffle=False,
     )
@@ -169,6 +171,8 @@ def check_and_extract_chunks(fn_subs, args, sample_rate):
     return to_log
 
 
+if __name__ == "__main__":
+    main()
 # with open("UCidOzV_wWS97f9dQlnAD7dQ/_KmCSyOGm34.sv.json") as f:
 #     sub_dict = json.load(f)
 
