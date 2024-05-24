@@ -38,11 +38,12 @@ def main() -> None:
     if not os.path.exists(output_dir):
         makedirs(output_dir)
     for d in get_dir_names(chunks_dir):
+        concatenated_metadata = pd.DataFrame()
         if 'youtube' in d:
             source = 'youtube_'
         ### add other sources of data flags 
         if "stage" in d:
-            concatenated_metadata = pd.DataFrame()
+            print('dir is ',d)
             for file in get_txt_files(d):
 
                 dirname, basename = os.path.split(file)
@@ -51,7 +52,7 @@ def main() -> None:
                     text = f.read().rstrip()
                 metadata = pd.DataFrame({"filename": [d+basename[:-4]+'.wav'] , "transcription": [text]})    
                 concatenated_metadata = pd.concat([concatenated_metadata, metadata])
-                concatenated_metadata.to_csv(f"{output_dir}/metadata_{source}{stage_filter}.csv", index=False)                                
+            concatenated_metadata.to_csv(f"{output_dir}/metadata_{source}{stage_filter}.csv", index=False)                                
 
 
 if __name__ == "__main__":
