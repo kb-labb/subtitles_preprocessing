@@ -43,7 +43,6 @@ def main() -> None:
             source = 'youtube_'
         ### add other sources of data flags 
         if "stage" in d:
-            print('dir is ',d)
             for file in get_txt_files(d):
 
                 dirname, basename = os.path.split(file)
