@@ -125,7 +125,7 @@ def calculate_scores(file_to_process, recalculate=False, save_as_new=False):
 
             if whisper_scores != None and wav2vec_scores != None:
                 # change the values to the desired thresholds
-                if wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.8:
+                if wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.4:
                     chunk["filters"]["stage1_whisper"] = True
                 if whisper_scores["bleu"] > 0.8 and whisper_scores["wer"] < 0.2:
                     chunk["filters"]["stage2_whisper"] = True
