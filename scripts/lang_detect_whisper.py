@@ -68,29 +68,12 @@ def main():
     logger.info("Reading json-file list")
     json_files = []
     with open(args.json_files) as fh:
-        for line in fh:
-            json_files.append(line.strip())
+        if args.json_files.endswith(".json"):
+            json_files = json.load(fh)
+        else:
+            for line in fh:
+                json_files.append(line.strip())
 
-    # audio_files = []
-    # non_empty_json_files = []
-    # logging.info("Checking json-files...")
-    # for line in tqdm(json_files):
-    #     line = line.split()
-    #     assert 0 < len(line) and len(line) <= 2
-    #     with open(line[0]) as f:
-    #         try:
-    #             vad_dict = json.load(f)
-    #             if n_non_silent_chunks(vad_dict) >= 1:
-    #                 # audio_files.append(vad_dict["metadata"]["audio_path"])
-    #                 non_empty_json_files.append(line[0])
-    #                 if len(line) == 2:
-    #                     audio_files.append(line[1])
-    #                 else:
-    #                     audio_files.append(line[0][:-5] + ".wav")
-    #         except json.JSONDecodeError:
-    #             logging.info(f"failed reading json-file {line[0]}")
-
-    # json_files = non_empty_json_files
 
     model = WhisperForConditionalGeneration.from_pretrained(
         args.model_name,
@@ -103,6 +86,13 @@ def main():
     )
 
     my_filter = lambda x: x["duration"] > 20_000
+    def my_filter(x):
+        if x["duration"] < 20_000:
+            return False
+        if "language_probs" in x:
+            return False
+        return True
+
     audio_dataset = AudioFileChunkerDataset(
         json_paths=json_files,
         model_name=args.model_name,
@@ -126,7 +116,9 @@ def main():
     for dataset_info in tqdm(dataloader_datasets):
         try:
             if dataset_info[0]["dataset"] is None:
+                logger.info(f"Do nothing for {dataset_info[0]['json_path']}")
                 continue
+
             dataset = dataset_info[0]["dataset"]
             dataloader_mel = torch.utils.data.DataLoader(
                 dataset,

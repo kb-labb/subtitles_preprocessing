@@ -103,11 +103,13 @@ class AudioFileChunkerDataset(Dataset):
                 convert_audio_to_wav(audio_path, os.path.join(tmpdirname, "tmp.wav"))
                 audio, sr = sf.read(os.path.join(tmpdirname, "tmp.wav"))
             except Exception as e:
-                print(f"Error reading audio file {audio_path}. {e}")
-                os.makedirs("logs", exist_ok=True)
-                with open("logs/error_audio_files.txt", "a") as f:
-                    f.write(f"{audio_path}\n")
-                return None
+                self.logger.info(f"Error reading audio file {audio_path}. {e}")
+                raise Exception(e)
+                # print(f"Error reading audio file {audio_path}. {e}")
+                # os.makedirs("logs", exist_ok=True)
+                # with open("logs/error_audio_files.txt", "a") as f:
+                #     f.write(f"{audio_path}\n")
+                # return None
         return audio, sr
 
     def json_chunks(self, sub_dict):
@@ -124,7 +126,9 @@ class AudioFileChunkerDataset(Dataset):
 
     def __getitem__(self, idx):
         json_path = self.json_paths[idx]
-        if len(json_path.split()) == 2:
+        if type(json_path) == list and len(json_path) == 2:
+            json_path, audio_path = json_path
+        elif len(json_path.split()) == 2:
             json_path, audio_path = json_path.split()
         else:
             audio_path = None
@@ -133,6 +137,19 @@ class AudioFileChunkerDataset(Dataset):
         with open(json_path) as f:
             try:
                 sub_dict = json.load(f)
+                if len(list(filter(lambda x: self.my_filter(x), sub_dict["chunks"]))) == 0:
+                    self.logger.info(f"Nothing do to for {json_path}")
+                    out_dict = {
+                        "dataset": None,
+                        "metadata": None,
+                        "audio_path": audio_path,
+                        "json_path": json_path,
+                        "is_transcribed": None,
+                        "is_transcribed_same_model": None,
+                        "is_langdetected": None,
+                    }
+                    return out_dict
+
                 if "audio_path" in sub_dict["metadata"]:
                     audio_path = sub_dict["metadata"]["audio_path"] 
                 if n_non_silent_chunks(sub_dict) == 0:
@@ -148,6 +165,7 @@ class AudioFileChunkerDataset(Dataset):
                     return out_dict
             except json.JSONDecodeError:
                 self.logger.info(f"failed reading json-file {json_path}")
+                raise Exception(e)
                 out_dict = {
                     "dataset": None,
                     "metadata": None,
@@ -191,6 +209,8 @@ class AudioFileChunkerDataset(Dataset):
             try:
                 spectograms = torch.cat(spectograms, dim=0)
             except Exception as e:
+                self.logger.info(f"failed concatenating the spectograms for {json_path} with exception {e}")
+                # raise Exception(e)
                 out_dict = {
                     "dataset": None,
                     "metadata": sub_dict["metadata"],

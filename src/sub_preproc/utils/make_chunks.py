@@ -176,6 +176,9 @@ def make_chunks(
                 "sub_ids": sub_ids,
             }
         )
+    # TODO fix silent_chunk avoidance properly during creation
+    if not silent_chunks:
+        chunks = [chunk for chunk in chunks if not chunk["text"] == ""]
 
     if "chunks" not in subs:
         subs["chunks"] = chunks

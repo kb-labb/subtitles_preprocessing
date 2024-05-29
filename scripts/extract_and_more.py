@@ -355,6 +355,8 @@ def compute_chunks_and_load(fn):
     to_log = []
     start = time.time()
     prev = start
+    thresholds = [(20_001, 30_000)]
+    compute_chunks_wt = partial(compute_chunks, thresholds=thresholds)
 
     def log_time(log_point, prev):
         to_log.append(f"{log_point:<20s}{time.time() - prev:.4f}")
@@ -362,7 +364,7 @@ def compute_chunks_and_load(fn):
 
     with open(fn, "r") as fh:
         try:
-            subs_dict = compute_chunks(json.load(fh))
+            subs_dict = compute_chunks_wt(json.load(fh))
         except json.JSONDecodeError:
             to_log.append(f"JSONDecodeError for {fn}")
             return to_log
@@ -389,8 +391,11 @@ def main():
 
     filenames = []
     with open(args.in_data) as fh:
-        for line in fh:
-            filenames.append(line.strip())
+        if args.in_data.endswith(".json"):
+            filenames = json.load(fh)
+        else:
+            for line in fh:
+                filenames.append(line.strip())
 
     match args.task:
         case "extract_subs":
