@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 
 import pandas as pd
 import pysrt
-import textgrid
+#import textgrid
 from tqdm import tqdm
 
 HOUR = 3_600_000
@@ -306,6 +306,7 @@ def is_silence(text):
 
 def subrip_to_dict(
     subs: pysrt.SubRipFile,
+    audio_path: Optional[str],
     channel: Optional[str],
     subchannel: Optional[str],
     year: Optional[str],
@@ -329,6 +330,7 @@ def subrip_to_dict(
 
     subs_dict = {
         "metadata": {
+            "audio_path": audio_path,
             "channel": channel,
             "subchannel": subchannel,
             "year": year,

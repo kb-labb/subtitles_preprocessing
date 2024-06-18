@@ -21,6 +21,8 @@ def find_audio_extension(filename):
     """
     if os.path.isfile(filename + ".webm"):
         return filename + ".webm"
+    elif os.path.isfile(filename + ".wav"):
+        return filename + ".wav"
     elif os.path.isfile(filename + ".m4a"):
         return filename + ".m4a"
     elif os.path.isfile(filename + ".mp3"):

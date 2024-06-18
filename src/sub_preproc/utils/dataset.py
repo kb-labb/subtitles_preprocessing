@@ -294,6 +294,7 @@ class RawAudioFileChunkerDataset(Dataset):
         basename = os.path.basename(audio_path).split(".")[0]
         # filters = ["stage1_whisper", "stage2_whisper", "stage2_whisper_timestamps", "stage1_wav2vec"]
         os.makedirs(self.out_dir + "/stage1_wav2vec", exist_ok=True)
+        json_info = []
         for i, chunk in enumerate(sub_dict["chunks"]):
             start_frame = self.ms_to_frames(chunk["start"], sr)
             end_frame = self.ms_to_frames(chunk["end"], sr)
@@ -302,26 +303,27 @@ class RawAudioFileChunkerDataset(Dataset):
             chunk_audio = audio[start_frame:end_frame]
             if "filters" in chunk:
                 if chunk["filters"]["stage1_wav2vec"] == True:
+                    duration = chunk["duration"]
                     chunk_audio_path = os.path.join(
-                        self.out_dir, "stage1_wav2vec", f"{basename}_{i}.wav"
+                        self.out_dir, "stage1_wav2vec", f"{basename}_{i}_duration_{duration}.wav"
                     )
                     with sf.SoundFile(chunk_audio_path, "w", sr, channels=1) as f:
                         f.write(chunk_audio)
                     # Save ground truth text
                     text = chunk["text"]
-                    text_path = os.path.join(self.out_dir, "stage1_wav2vec", f"{basename}_{i}.txt")
+                    text_path = os.path.join(self.out_dir, "stage1_wav2vec", f"{basename}_{i}_duration_{duration}.txt")
                     with open(text_path, "w") as f:
                         text = clean_subtitle(text)
                         f.write(text)
-
+        
         return None
 
     def __getitem__(self, idx):
         audio_path = self.audio_paths[idx]
         json_path = self.json_paths[idx]
-
+        
         with open(json_path) as f:
-            sub_dict = json.load(f)
+            sub_dict = json.load(f) 
 
         self.audio_chunker_to_file(audio_path, sub_dict)
 

@@ -32,6 +32,8 @@ def find_audio_extension(filename):
     print(filename)
     if os.path.isfile(filename + ".webm"):
         return filename + ".webm"
+    elif os.path.isfile(filename + ".wav"):
+        return filename + ".wav"
     elif os.path.isfile(filename + ".m4a"):
         return filename + ".m4a"
     elif os.path.isfile(filename + ".mp3"):
@@ -109,7 +111,10 @@ def main():
 
         audio_files = []
         for file in json_files:
-            filename = file.split(".")[0]
+            if "sv.json" in file:
+                filename = file[:-8]
+            else:    
+                filename = file.split(".")[0]
             audio_file = find_audio_extension(filename)
             audio_files.append(audio_file)
 
