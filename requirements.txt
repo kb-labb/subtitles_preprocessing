@@ -13,3 +13,4 @@ num2words
 jiwer
 nltk
 isort
+textgrid

@@ -74,7 +74,7 @@ def calculate_scores(file_to_process, recalculate=False, save_as_new=False):
                     print(f"Recalculating: {file_to_process}, chunk: {i}")
                 elif not recalculate and "filters" not in chunk:
                     # calculate if not processed
-                    print(f"Calculaiting: {file_to_process}, chunk: {i}")
+                    print(f"Calculating: {file_to_process}, chunk: {i}")
                 gt = chunk["text"]
                 gt = normalize_text(gt)
                 gt_words = gt.split()
