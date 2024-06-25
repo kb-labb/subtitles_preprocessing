@@ -61,4 +61,4 @@ This script transcribes the audio in each chunk and adds transcription informati
 use `make_audio_chunks.py` to extract audio chunks (in .wav) and the subtitle (.txt) for each chunk if `stage1_wav2vec` == True. This script creates a new folder with .wav and .txt files for all chunks of all original files. `python scripts/make_audio_chunks.py --json_files files_json_xxx.txt` 
 
 * Whisper training:
-use `create_audio_parquet.py` to create a parquet file with all metadata needed for the whisper training, along with the various quality criteria. This script creates one parquet file for each original audio file, with information on how to split the audio into chunks. `python scripts/create_audio_parquet.py --json_files files_json_xxx.txt` 
+use `create_parquet_metadata.py` to create a parquet file with all metadata needed for the whisper training, along with the various quality criteria. This script creates one parquet file for each original audio file, with information on how to split the audio into chunks. `python scripts/create_parquet_metadata.py --json_files files_json_xxx.txt` 
