@@ -44,7 +44,7 @@ Once subtitles paired with audio is extracted and located in a directo ry, the p
 1. Preprocess subtitles and output json
 * `python scripts/02_preprocess_sub.py` for smdb
 * `python scripts/02_preprocess_svt.py` for SVT
-* `python scripts/02_preprocess_swedia.py` for swedia
+* `python scripts/02_preprocess_swedia.py` for swedia.
 These scripts call the function make_chunks in https://github.com/kb-labb/subtitles_preprocessing/blob/main/src/sub_preproc/utils/make_chunks.py that returns a json file with metadata and chunks split according to min and max thresholds specified when the function is called.  
 2. Create `json_files_xxx.txt` file with a list of all json files created in the previous step, where `xxx` is your data source, such as SVT, smdb etc. Script to modify according to your folder structure/json file name etc:
 `find .  -name *.json -exec bash -c 'd=${1%/*}; d=${d##*/}; printf "%s %s\n" "$1" ' Out {} \; >json_files_xxx.txt` 
