@@ -138,7 +138,7 @@ class AudioFileChunkerDataset(Dataset):
             try:
                 sub_dict = json.load(f)
                 if len(list(filter(lambda x: self.my_filter(x), sub_dict["chunks"]))) == 0:
-                    self.logger.info(f"Nothing do to for {json_path}")
+                    # self.logger.info(f"Nothing do to for {json_path}")
                     out_dict = {
                         "dataset": None,
                         "metadata": None,

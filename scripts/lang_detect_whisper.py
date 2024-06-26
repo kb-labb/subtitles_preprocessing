@@ -85,7 +85,7 @@ def main():
         args.model_name, sample_rate=16_000, return_tensors="pt"
     )
 
-    my_filter = lambda x: x["duration"] > 20_000
+    # my_filter = lambda x: x["duration"] > 20_000
     def my_filter(x):
         if x["duration"] < 20_000:
             return False
@@ -114,6 +114,7 @@ def main():
 
     logger.info("Iterate over outer dataloader")
     for dataset_info in tqdm(dataloader_datasets):
+        # print(dataset_info[0]["json_path"])
         try:
             if dataset_info[0]["dataset"] is None:
                 logger.info(f"Do nothing for {dataset_info[0]['json_path']}")

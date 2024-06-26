@@ -57,29 +57,15 @@ def main():
     device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() else "cpu")
 
     # read vad json
+    logger.info("Reading json-file list")
     json_files = []
     with open(args.json_files) as fh:
-        for line in fh:
-            json_files.append(line.strip())
+        if args.json_files.endswith(".json"):
+            json_files = json.load(fh)
+        else:
+            for line in fh:
+                json_files.append(line.strip())
 
-    # audio_files = []
-    # non_empty_json_files = []
-    # for line in json_files:
-    #     line = line.split()
-    #     assert 0 < len(line) and len(line) <= 2
-    #     with open(line[0]) as f:
-    #         try:
-    #             vad_dict = json.load(f)
-    #             if n_non_silent_chunks(vad_dict) >= 1:
-    #                 non_empty_json_files.append(line[0])
-    #                 if len(line) == 2:
-    #                     audio_files.append(line[1])
-    #                 else:
-    #                     audio_files.append(line[0][:-5] + ".wav")
-    #         except json.JSONDecodeError:
-    #             logging.info(f"failed reading json-file {line[0]}")
-
-    # json_files = non_empty_json_files
 
     model = WhisperForConditionalGeneration.from_pretrained(
         args.model_name,
@@ -92,7 +78,17 @@ def main():
     )
 
     def my_filter(x):
-        return x["any_subs_swedish"] 
+        if x["duration"] < 20_000:
+            return False
+        if "language_probs" not in x:
+            return False
+        if "transcription" in x:
+            if args.model_name in x["transcription"]:
+                return False
+        if max(x["language_probs"]["openai/whisper-large-v3"].items(), key=lambda x: x[1])[0] != "sv":
+            return False
+        return True
+
 
     audio_dataset = AudioFileChunkerDataset(
         json_paths=json_files,
@@ -113,11 +109,12 @@ def main():
         shuffle=False,
     )
 
+    logger.info("Iterate over outer dataloader")
     for dataset_info in tqdm(dataloader_datasets):
         try:
-            if dataset_info[0]["is_transcribed_same_model"]:
-                logger.info(f"Already transcribed: {dataset_info[0]['json_path']}.")
-                continue  # Skip already transcribed videos
+            if dataset_info[0]["dataset"] is None:
+                logger.info(f"Do nothing for {dataset_info[0]['json_path']}")
+                continue
 
             dataset = dataset_info[0]["dataset"]
             dataloader_mel = torch.utils.data.DataLoader(
@@ -150,9 +147,9 @@ def main():
 
             # Add transcription to the json file
             sub_dict = dataset.sub_dict
-            assert len(sub_dict["chunks"]) == len(transcription_texts)
+            assert len(list(filter(lambda x: my_filter(x), sub_dict["chunks"]))) == len(transcription_texts)
 
-            for i, chunk in enumerate(sub_dict["chunks"]):
+            for i, chunk in enumerate(filter(lambda x: my_filter(x), sub_dict["chunks"])):
                 if args.overwrite_all or "transcription" not in chunk:
                     chunk["transcription"] = [transcription_texts[i]]
                 elif "transcription" in chunk:
