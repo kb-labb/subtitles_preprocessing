@@ -51,7 +51,14 @@ def make_chunks(
     def subs_to_raw_text(subs):
         return " ".join([sub["text"] for sub in subs if sub["text"].replace("\n", " ") != SILENCE])
 
+    i = 0
     for sub_i, sub in enumerate(subs["subs"][start_index:-end_index]):
+        if max_threshold == 5_000:
+            i = i + 1
+        if i > 20:
+            # don't make too many small chunks...
+            i = 0
+            break
         # silent subs get negative ids
         if sub["text"] == SILENCE:
             sub_i *= -1
