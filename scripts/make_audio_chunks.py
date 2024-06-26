@@ -32,6 +32,8 @@ def find_audio_extension(filename):
     print(filename)
     if os.path.isfile(filename + ".webm"):
         return filename + ".webm"
+    elif os.path.isfile(filename + ".wav"):
+        return filename + ".wav"
     elif os.path.isfile(filename + ".m4a"):
         return filename + ".m4a"
     elif os.path.isfile(filename + ".mp3"):
@@ -68,6 +70,11 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--sample_rate", type=int, default=16_000)
     parser.add_argument("--log_dir", type=str, default="logs")
     parser.add_argument("--processes", type=int, default=1)
+    parser.add_argument(
+        "--source",
+        type=str,
+        help="Use smdb if you have a json file with json file paths and corresponding audio paths.",
+    )
 
     return parser.parse_args()
 
@@ -80,18 +87,36 @@ def main():
 
     args = get_args()
 
-    json_files = []
-    with open(args.json_files) as fh:
-        print('fh ', fh)
-        for line in fh:
-            print('line ', line)
-            json_files.append(line.strip())
+    if (
+        args.source == "smdb"
+    ):  # in case of smdb - json file with tuples of json and audio files paths
 
-    audio_files = []
-    for file in json_files:
-        filename = file.split(".")[0]
-        audio_file = find_audio_extension(filename)
-        audio_files.append(audio_file)
+        audio_files = []
+        json_files = []
+
+        with open(args.json_files) as fh:
+            data = json.load(fh)
+
+        for entry in data:
+            json_files.append(entry[0])
+            audio_files.append(entry[1])
+
+    else:
+        json_files = []
+        with open(args.json_files) as fh:
+            print("fh ", fh)
+            for line in fh:
+                print("line ", line)
+                json_files.append(line.strip())
+
+        audio_files = []
+        for file in json_files:
+            if "sv.json" in file:
+                filename = file[:-8]
+            else:    
+                filename = file.split(".")[0]
+            audio_file = find_audio_extension(filename)
+            audio_files.append(audio_file)
 
     audio_dataset = RawAudioFileChunkerDataset(
         audio_paths=audio_files, json_paths=json_files, out_dir=args.out_dir

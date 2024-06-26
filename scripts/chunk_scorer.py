@@ -31,7 +31,6 @@ def get_args() -> argparse.Namespace:
         help="Save as new file",
     )
     
-    
     """ parser.add_argument(
         "--num_proc",
         type=int,
@@ -48,108 +47,111 @@ def calculate_scores(file_to_process, recalculate=False, save_as_new=False):
 
     skip = False
     for i, chunk in enumerate(d["chunks"]):
+        
+        if chunk["transcription"] != []:
 
-        whisper_scores, wav2vec_scores = None, None
+            whisper_scores, wav2vec_scores = None, None
 
-        if not recalculate and "filters" in chunk:
-            # skip if already processed and not recalculating
-            print(
-                f"Skipping: {file_to_process}. Already processed. Use --recalculate to recalculate the scores."
-            )
-            skip = True
-            break
+            if not recalculate and "filters" in chunk:
+                # skip if already processed and not recalculating
+                print(
+                    f"Skipping: {file_to_process}. Already processed. Use --recalculate to recalculate the scores."
+                )
+                skip = True
+                break
 
-        elif recalculate and "filters" not in chunk:
-            # skip if not processed and recalculating
-            print(
-                f"Skipping: {file_to_process}, chunk: {i}. No scores to recalculate. Calculate scores first."
-            )
-            skip = True
-            break
+            elif recalculate and "filters" not in chunk:
+                # skip if not processed and recalculating
+                print(
+                    f"Skipping: {file_to_process}, chunk: {i}. No scores to recalculate. Calculate scores first."
+                )
+                skip = True
+                break
 
-        elif not recalculate and "filters" not in chunk or recalculate and "filters" in chunk:
-            if recalculate and "filters" in chunk:
-                # recalculate if already processed
-                print(f"Recalculating: {file_to_process}, chunk: {i}")
-            elif not recalculate and "filters" not in chunk:
-                # calculate if not processed
-                print(f"Calculaiting: {file_to_process}, chunk: {i}")
-            gt = chunk["text"]
-            gt = normalize_text(gt)
-            gt_words = gt.split()
-            preds = chunk["transcription"]
-            chunk["filters"] = {
-                "stage1_whisper": False,
-                "stage2_whisper": False,
-                "stage2_whisper_timestamps": False,
-                "stage1_wav2vec": False,
-                "silence": False,
-            }
-            for pred in preds:
-                if "model" in pred:
-                    model = pred["model"]
-                    pt = pred["text"]
-                    pt = normalize_text(pt)
-                    pt_words = pt.split()
-                    if gt == "" and "wav2vec2" in model.lower() and pt == "":
-                        chunk["filters"]["silence"] = True
-                        pred["scores"] = {
-                            "bleu": 0.0,
-                            "wer": 0.0,
-                            "first": 0.0,
-                            "last": 0.0,
-                        }
-                    else:
-                        if gt != "" and pt != "":
-                            pred["scores"] = {
-                                "bleu": calculate_bleu(gt, pt),
-                                "wer": calculate_wer(gt, pt),
-                                "first": fuzz.ratio(gt_words[0], pt_words[0]),
-                                "last": fuzz.ratio(gt_words[-1], pt_words[-1]),
-                            }
-                        elif [gt == "" and pt != ""] or [gt != "" and pt == ""]:
+            elif not recalculate and "filters" not in chunk or recalculate and "filters" in chunk:
+                if recalculate and "filters" in chunk:
+                    # recalculate if already processed
+                    print(f"Recalculating: {file_to_process}, chunk: {i}")
+                elif not recalculate and "filters" not in chunk:
+                    # calculate if not processed
+                    print(f"Calculating: {file_to_process}, chunk: {i}")
+                gt = chunk["text"]
+                gt = normalize_text(gt)
+                gt_words = gt.split()
+                preds = chunk["transcription"]
+                chunk["filters"] = {
+                    "stage1_whisper": False,
+                    "stage2_whisper": False,
+                    "stage2_whisper_timestamps": False,
+                    "stage1_wav2vec": False,
+                    "silence": False,
+                }
+                for pred in preds:
+                    if "model" in pred:
+                        model = pred["model"]
+                        pt = pred["text"]
+                        pt = normalize_text(pt)
+                        pt_words = pt.split()
+                        if gt == "" and "wav2vec2" in model.lower() and pt == "":
+                            chunk["filters"]["silence"] = True
                             pred["scores"] = {
                                 "bleu": 0.0,
                                 "wer": 0.0,
                                 "first": 0.0,
                                 "last": 0.0,
                             }
-                    if "wav2vec2" in model.lower():
-                        wav2vec_scores = pred["scores"]
-                    elif "whisper" in model.lower():
-                        whisper_scores = pred["scores"]
+                        else:
+                            if gt != "" and pt != "":
+                                pred["scores"] = {
+                                    "bleu": calculate_bleu(gt, pt),
+                                    "wer": calculate_wer(gt, pt),
+                                    "first": fuzz.ratio(gt_words[0], pt_words[0]),
+                                    "last": fuzz.ratio(gt_words[-1], pt_words[-1]),
+                                }
+                            elif [gt == "" and pt != ""] or [gt != "" and pt == ""]:
+                                pred["scores"] = {
+                                    "bleu": 0.0,
+                                    "wer": 0.0,
+                                    "first": 0.0,
+                                    "last": 0.0,
+                                }
+                        if "wav2vec2" in model.lower():
+                            wav2vec_scores = pred["scores"]
+                        elif "whisper" in model.lower():
+                            whisper_scores = pred["scores"]
+                    else:
+                        print(f"Transcription missing in {file_to_process}, chunk: {i}")
+                        skip = True
+                        break
+                    
+
+                if whisper_scores != None and wav2vec_scores != None:
+                    # change the values to the desired thresholds
+                    if wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.4:
+                        chunk["filters"]["stage1_whisper"] = True
+                    if whisper_scores["bleu"] > 0.8 and whisper_scores["wer"] < 0.2:
+                        chunk["filters"]["stage2_whisper"] = True
+                    if (
+                        whisper_scores["bleu"] > 0.8
+                        and whisper_scores["first"] >= 80.0
+                        and whisper_scores["last"] >= 80.0
+                        and whisper_scores["wer"] < 0.2
+                    ):
+                        chunk["filters"]["stage2_whisper_timestamps"] = True
+                    if (
+                        [wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.8]
+                        and whisper_scores["first"] >= 80.0
+                        and whisper_scores["last"] >= 80.0
+                        and wav2vec_scores["first"] >= 80.0
+                        and wav2vec_scores["last"] >= 80.0
+                        and whisper_scores["wer"] < 0.2
+                        and wav2vec_scores["wer"] < 0.2
+                    ):
+                        chunk["filters"]["stage1_wav2vec"] = True
                 else:
-                    print(f"Transcription missing in {file_to_process}, chunk: {i}")
+                    print(f"Scores missing in {file_to_process}, chunk: {i}")
                     skip = True
                     break
-
-            if whisper_scores != None and wav2vec_scores != None:
-                # change the values to the desired thresholds
-                if wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.4:
-                    chunk["filters"]["stage1_whisper"] = True
-                if whisper_scores["bleu"] > 0.8 and whisper_scores["wer"] < 0.2:
-                    chunk["filters"]["stage2_whisper"] = True
-                if (
-                    whisper_scores["bleu"] > 0.8
-                    and whisper_scores["first"] >= 80.0
-                    and whisper_scores["last"] >= 80.0
-                    and whisper_scores["wer"] < 0.2
-                ):
-                    chunk["filters"]["stage2_whisper_timestamps"] = True
-                if (
-                    [wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.8]
-                    and whisper_scores["first"] >= 80.0
-                    and whisper_scores["last"] >= 80.0
-                    and wav2vec_scores["first"] >= 80.0
-                    and wav2vec_scores["last"] >= 80.0
-                    and whisper_scores["wer"] < 0.2
-                    and wav2vec_scores["wer"] < 0.2
-                ):
-                    chunk["filters"]["stage1_wav2vec"] = True
-            else:
-                print(f"Scores missing in {file_to_process}, chunk: {i}")
-                skip = True
-                break
 
     if save_as_new and not skip:
         file_to_save = file_to_process.split(".json")[0]

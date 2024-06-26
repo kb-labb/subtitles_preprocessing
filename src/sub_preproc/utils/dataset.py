@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from sub_preproc.utils.text import clean_subtitle
 from sub_preproc.utils.make_chunks import n_non_silent_chunks
 
+
 class AudioDataset(Dataset):
     """
     Takes multiple spectograms and returns one spectogram at a time.
@@ -52,7 +53,9 @@ class AudioFileChunkerDataset(Dataset):
             "is_langdetected": Whether the audio has been language detected
     """
 
-    def __init__(self, json_paths, model_name, processor, logger, chunks_or_subs="chunks", my_filter=None):
+    def __init__(
+        self, json_paths, model_name, processor, logger, chunks_or_subs="chunks", my_filter=None
+    ):
         self.json_paths = json_paths
         self.model_name = model_name
         self.processor = processor
@@ -77,7 +80,9 @@ class AudioFileChunkerDataset(Dataset):
         """
         if "transcription" in sub_dict[self.chunks_or_subs][0]:
             models = [t["model"] for t in sub_dict[self.chunks_or_subs][0]["transcription"]]
-            is_transcribed = True if len(sub_dict[self.chunks_or_subs][0]["transcription"]) > 0 else False
+            is_transcribed = (
+                True if len(sub_dict[self.chunks_or_subs][0]["transcription"]) > 0 else False
+            )
             is_transcribed_same_model = self.model_name in models
             is_langdetected = any(
                 [
@@ -133,7 +138,6 @@ class AudioFileChunkerDataset(Dataset):
         else:
             audio_path = None
 
-
         with open(json_path) as f:
             try:
                 sub_dict = json.load(f)
@@ -151,7 +155,7 @@ class AudioFileChunkerDataset(Dataset):
                     return out_dict
 
                 if "audio_path" in sub_dict["metadata"]:
-                    audio_path = sub_dict["metadata"]["audio_path"] 
+                    audio_path = sub_dict["metadata"]["audio_path"]
                 if n_non_silent_chunks(sub_dict) == 0:
                     out_dict = {
                         "dataset": None,
@@ -178,18 +182,17 @@ class AudioFileChunkerDataset(Dataset):
                 return out_dict
 
         if not audio_path:
-           self.logger.info(f"no audio path for  {json_path}")
-           out_dict = {
-               "dataset": None,
-               "metadata": None,
-               "audio_path": audio_path,
-               "json_path": json_path,
-               "is_transcribed": None,
-               "is_transcribed_same_model": None,
-               "is_langdetected": None,
-           }
-           return out_dict
-            
+            self.logger.info(f"no audio path for  {json_path}")
+            out_dict = {
+                "dataset": None,
+                "metadata": None,
+                "audio_path": audio_path,
+                "json_path": json_path,
+                "is_transcribed": None,
+                "is_transcribed_same_model": None,
+                "is_langdetected": None,
+            }
+            return out_dict
 
         spectograms = []
         for audio_chunk in self.audio_chunker(audio_path, sub_dict):
@@ -203,13 +206,14 @@ class AudioFileChunkerDataset(Dataset):
                 ).input_values
             )
 
-
         if "whisper" in self.model_name:
             # Wav2vec2 processor doesn't pad up to 30s by default
             try:
                 spectograms = torch.cat(spectograms, dim=0)
             except Exception as e:
-                self.logger.info(f"failed concatenating the spectograms for {json_path} with exception {e}")
+                self.logger.info(
+                    f"failed concatenating the spectograms for {json_path} with exception {e}"
+                )
                 # raise Exception(e)
                 out_dict = {
                     "dataset": None,
@@ -288,38 +292,38 @@ class RawAudioFileChunkerDataset(Dataset):
         audio, sr = self.read_audio(audio_path)
         # Extract filename without extension
         basename = os.path.basename(audio_path).split(".")[0]
-        filters = ["stage1_whisper", "stage2_whisper", "stage2_whisper_timestamps", "stage1_wav2vec"] 
-        for x in filters:
-            os.makedirs(self.out_dir+"/"+x, exist_ok=True)
+        # filters = ["stage1_whisper", "stage2_whisper", "stage2_whisper_timestamps", "stage1_wav2vec"]
+        os.makedirs(self.out_dir + "/stage1_wav2vec", exist_ok=True)
+        json_info = []
         for i, chunk in enumerate(sub_dict["chunks"]):
             start_frame = self.ms_to_frames(chunk["start"], sr)
             end_frame = self.ms_to_frames(chunk["end"], sr)
-            
+
             # Save audio chunk
             chunk_audio = audio[start_frame:end_frame]
-            for x in filters:
-                if chunk["filters"]:
-                    if chunk["filters"][x]==True:
-                        if chunk["filters"]["stage1_whisper"]==True:
-                            chunk_audio_path = os.path.join(self.out_dir, "stage1_whisper", f"{basename}_{i}.wav")
-                            with sf.SoundFile(chunk_audio_path, "w", sr, channels=1) as f:
-                                f.write(chunk_audio)
-                        # Save ground truth text
-                        text = chunk["text_whisper"]
-                        text_path = os.path.join(self.out_dir, x, f"{basename}_{i}.txt")
-
-                        with open(text_path, "w") as f:
-                            text = clean_subtitle(text)
-                            f.write(text)
+            if "filters" in chunk:
+                if chunk["filters"]["stage1_wav2vec"] == True:
+                    duration = chunk["duration"]
+                    chunk_audio_path = os.path.join(
+                        self.out_dir, "stage1_wav2vec", f"{basename}_{i}_duration_{duration}.wav"
+                    )
+                    with sf.SoundFile(chunk_audio_path, "w", sr, channels=1) as f:
+                        f.write(chunk_audio)
+                    # Save ground truth text
+                    text = chunk["text"]
+                    text_path = os.path.join(self.out_dir, "stage1_wav2vec", f"{basename}_{i}_duration_{duration}.txt")
+                    with open(text_path, "w") as f:
+                        text = clean_subtitle(text)
+                        f.write(text)
         
         return None
 
     def __getitem__(self, idx):
         audio_path = self.audio_paths[idx]
         json_path = self.json_paths[idx]
-
+        
         with open(json_path) as f:
-            sub_dict = json.load(f)
+            sub_dict = json.load(f) 
 
         self.audio_chunker_to_file(audio_path, sub_dict)
 
