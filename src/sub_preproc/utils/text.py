@@ -57,6 +57,45 @@ def normalize_text(text):
     return text
 
 
+def normalize_text_svt(text):
+    """
+    Normalize speech text transcript by removing punctuation, converting numbers to words,
+    replacing hyphens joining words with whitespace, and lowercasing the text.
+
+    Args:
+        text (str): The text to normalize.
+    Returns:
+        str: The normalized text.
+    """
+    text = text.lower()
+    # Replace abbreviations with their full form
+    text = expand_abbreviations(text)
+    # Remove hyphens
+    text = re.sub(r"(?<=\s)–\b", "", text)
+    # Remove hyphens between words
+    text = re.sub(r"(?<=\w)-(?=\w)", " ", text)
+    text = re.sub(r"(?<=\w)–(?=\w)", " ", text)
+    # Remove "/  /"  and everything between them
+    text = re.sub(r"/.*?/", " ", text)
+    # Convert numbers to words
+    text = re.sub(r"\d+", lambda m: num2words(int(m.group(0)), lang="sv"), text)
+    # Remove punctuation
+    text = text.translate(str.maketrans("", "", string.punctuation))
+    # Normalize unicode characters
+    text = unicodedata.normalize("NFKC", text)
+    # Remove newlines in the text
+    text = text.replace("\n", " ")
+    # Remove "-" and "–" in the beginning of the text
+    text = text.lstrip("-")
+    text = text.lstrip("–")
+    # Remove multiple spaces and replace with single space
+    text = re.sub(r"\s+", " ", text)
+    # Strip leading and trailing whitespace
+    text = text.strip()
+
+    return text
+
+
 def clean_subtitle(text):
     """
     Cleaning subtitle before outputting final ground truth to text files.
