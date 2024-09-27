@@ -47,16 +47,19 @@ Once subtitles paired with audio is extracted and located in a directo ry, the p
 * `python scripts/02_preprocess_swedia.py` for swedia.
 These scripts call the function make_chunks in https://github.com/kb-labb/subtitles_preprocessing/blob/main/src/sub_preproc/utils/make_chunks.py that returns a json file with metadata and chunks split according to min and max thresholds specified when the function is called.  
 2. Create `json_files_xxx.txt` file with a list of all json files created in the previous step, where `xxx` is your data source, such as SVT, smdb etc. Script to modify according to your folder structure/json file name etc:
-`find .  -name *.json -exec bash -c 'd=${1%/*}; d=${d##*/}; printf "%s %s\n" "$1" ' Out {} \; >json_files_xxx.txt` 
-3. With the `json_files_xxx.txt` created in the previous step as input, run the transcription with Whisper. 
+`find .  -name *.json -exec bash -c 'd=${1%/*}; d=${d##*/}; printf "%s %s\n" "$1" ' Out {} \; >json_files_xxx.txt`
+3. With the `json_files_xxx.txt` created in the previous step as input, run the language detection with Whisper.
+  `python scripts/lang_detect_whisper.py --json_files files_json_xxx.txt`
+This script detects the language of each chunk and adds the probabilities for the top 5 languages in the json file.  
+4. With the `json_files_xxx.txt` created in the previous step as input, run the transcription with Whisper. 
 `python scripts/transcribe_whisper.py --json_files files_json_xxx.txt` 
 This script transcribes the audio in each chunk and adds transcription information in the json file, with the name of the model used to transcribe. 
-4. With the `json_files_xxx.txt` created in the previous step as input, run the transcription with Wav2vec2.0. 
+5. With the `json_files_xxx.txt` created in the previous step as input, run the transcription with Wav2vec2.0. 
 `python scripts/transcribe_wav2vec.py --json_files files_json_xxx.txt` 
 This script transcribes the audio in each chunk and adds transcription information in the json file, with the name of the model used to transcribe. 
-5. The script `chunk_scorer.py` uses the transcriptions obtained in step 3 and 4 as well as the subtitle string to calculate bleu and wer scores, and match first and last words. The resulting scores are used to calculate four quality criteria for the subtitles, that states how well the subtitle string corresponds to the speech. The four quality criteria are named `stage1_whisper`, `stage2_whisper`, `stage2_whisper_timestamps` and `stage1_wav2vec`, where `stage1_whisper` is the lowest quality and `stage1_wav2vec` is the highest quality, and the name states the type of training the data is suitable for. The scripts adds the quality information under `filter` in the json file. 
+6. The script `chunk_scorer.py` uses the transcriptions obtained in step 3 and 4 as well as the subtitle string to calculate bleu and wer scores, and match first and last words. The resulting scores are used to calculate four quality criteria for the subtitles, that states how well the subtitle string corresponds to the speech. The four quality criteria are named `stage1_whisper`, `stage2_whisper`, `stage2_whisper_timestamps` and `stage1_wav2vec`, where `stage1_whisper` is the lowest quality and `stage1_wav2vec` is the highest quality, and the name states the type of training the data is suitable for. The scripts adds the quality information under `filter` in the json file. 
 `python scripts/chunk_scorer.py --json_files files_json_xxx.txt` 
-6. The result of the chunks scoring in step 5 is used to extract the audio data used in the training. There are two alternatives here depending on the training type:
+7. The result of the chunks scoring in step 5 is used to extract the audio data used in the training. There are two alternatives here depending on the training type:
 * Wav2vec2.0 training:
 use `make_audio_chunks.py` to extract audio chunks (in .wav) and the subtitle (.txt) for each chunk if `stage1_wav2vec` == True. This script creates a new folder with .wav and .txt files for all chunks of all original files. `python scripts/make_audio_chunks.py --json_files files_json_xxx.txt` 
 
