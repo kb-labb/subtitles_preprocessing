@@ -1,244 +1,186 @@
 import json
-import pandas as pd
-import os
+import sys
+import re
 import argparse
-import tempfile
-import soundfile as sf
-import numpy as np
-import subprocess
-from sub_preproc.utils.audio import convert_and_read_audio
-
-
-def ms_to_frames(ms, sr=16000):
-    return int(ms / 1000 * sr)
-
-
-def find_audio_extension(filename):
-    """
-    yt-dlp sometimes downloads audio in different format from the one
-    specified in the initial json metadata. We use this function to
-    check if the audio file exists and return the correct extension.
-    """
-    if os.path.isfile(filename + ".webm"):
-        return filename + ".webm"
-    elif os.path.isfile(filename + ".wav"):
-        return filename + ".wav"
-    elif os.path.isfile(filename + ".m4a"):
-        return filename + ".m4a"
-    elif os.path.isfile(filename + ".mp3"):
-        return filename + ".mp3"
-    elif os.path.isfile(filename + ".mp4"):
-        return filename + ".mp4"
-    elif os.path.isfile(filename + ".mkv"):
-        return filename + ".mkv"
-    elif os.path.isfile(filename + ".flac"):
-        return filename + ".flac"
-    else:
-        return None
-
-
+from multiprocessing import Pool
+from rapidfuzz import fuzz
+from sub_preproc.utils.text import normalize_text
+from sub_preproc.utils.metrics import calculate_wer, calculate_bleu
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-
     parser.add_argument(
         "--json_files",
         type=str,
-        help="Path to file containg json filepaths",
+        help="Path to file containing json filepaths",
         default="files.txt",
     )
-
     parser.add_argument(
-        "--source",
-        type=str,
-        help="Source of the files. Use smdb if you have a json file with json file paths and corresponding audio paths.",
+        "--recalculate",
+        action="store_true",
+        help="Recalculate scores",
     )
-
+    parser.add_argument(
+        "--save_as_new",
+        action="store_true",
+        help="Save as new file",
+    )
+    """ parser.add_argument(
+        "--num_proc",
+        type=int,
+        help="Number of processes to use",
+        default=16,
+    ) """
     return parser.parse_args()
-
-def extract_transcription(chunk):
-    transcriptions = chunk["transcription"]
-
-    for transcription in transcriptions:
-        if transcription["model"] == "openai/whisper-large-v3":
-            print(transcription["text"])
-            whisper_transcription = transcription["text"]
-            
-        elif transcription["model"] == "KBLab/wav2vec2-large-voxrex-swedish":
-            wav2vec_transcription = transcription["text"]
-
-    return whisper_transcription, wav2vec_transcription
-
-
-def create_parquet(json_file, audio_path=None, type=None):
-
-    sub_ids = []
-    audio_paths = []
-    start_times = []
-    end_times = []
-    texts = []
-    texts_whisper = []
-    bleu_whisper = []
-    wer_whisper = []
-    first_whisper = []
-    last_whisper = []
-    bleu_wav2vec = []
-    wer_wav2vec = []
-    first_wav2vec = []
-    last_wav2vec = []
-    stages1_whisper = []
-    stages2_whisper = []
-    stages2_whisper_timestamps = []
-    stages1_wav2vec = []
-    silences = []
-    sources = []
-    audio_tensors = []
-    whisper_transcriptions = []
-    wav2vec_transcriptions = []
-
-    with open(json_file, "r") as f:
-        data = json.load(f)
-    print(data)
-    
-    json_dir = os.path.dirname(json_file)
-    json_base_name = os.path.splitext(os.path.basename(json_file))[0]
-
-    if type == "smdb":
-        audio_path = audio_path
-    else:
-        # Find the audio extension for the file
-        filename = os.path.join(json_dir, f'{json_base_name.split(".")[0]}')
-        print(filename)
-        audio_path = find_audio_extension(filename)
-
-    print(f"Processing {audio_path}")
-    # Read the source audio file for the chunks
-    audio, sr = convert_and_read_audio(audio_path)
-
-    for chunk in data["chunks"]:
-
-        sub_id = str(chunk["sub_ids"])
-        start_time = chunk["start"]
-        end_time = chunk["end"]
-        text = chunk.get("text", "")
-        text_whisper = chunk.get("text_whisper", "")
-
-        if chunk["transcription"] == []:
-            print(f"Chunk has no transcription")
-        else:
-
-            if "whisper" in chunk["transcription"][0]["model"]:
-                whisper_scores = chunk["transcription"][0].get("scores", {})
-                bleu_whisper_score = whisper_scores.get("bleu", None)
-                wer_whisper_score = whisper_scores.get("wer", None)
-                first_whisper_score = whisper_scores.get("first", None)
-                last_whisper_score = whisper_scores.get("last", None)
-            else:
-                bleu_whisper_score = wer_whisper_score = first_whisper_score = (
-                    last_whisper_score
-                ) = None
-            if len(chunk["transcription"]) > 1:
-                if "wav2vec" in chunk["transcription"][1]["model"]:
-                    wav2vec_scores = chunk["transcription"][1].get("scores", {})
-                    bleu_wav2vec_score = wav2vec_scores.get("bleu", None)
-                    wer_wav2vec_score = wav2vec_scores.get("wer", None)
-                    first_wav2vec_score = wav2vec_scores.get("first", None)
-                    last_wav2vec_score = wav2vec_scores.get("last", None)
-                else:
-                    bleu_wav2vec_score = wer_wav2vec_score = first_wav2vec_score = (
-                        last_wav2vec_score
-                    ) = 0
-            else:
-                bleu_wav2vec_score = wer_wav2vec_score = first_wav2vec_score = (
-                    last_wav2vec_score
-                ) = 0
-            if "filters" in chunk:
-                filters = chunk["filters"]
-                stages1_whisper.append(filters.get("stage1_whisper", False))
-                stages2_whisper.append(filters.get("stage2_whisper", False))
-                stages2_whisper_timestamps.append(filters.get("stage2_whisper_timestamps", []))
-                stages1_wav2vec.append(filters.get("stage1_wav2vec", False))
-                silences.append(filters.get("silence", False))
-            else:
-                stages1_whisper.append(False)
-                stages2_whisper.append(False)
-                stages2_whisper_timestamps.append(False)
-                stages1_wav2vec.append(False)
-                silences.append(False)
-
-            start_frame = ms_to_frames(start_time, sr)
-            end_frame = ms_to_frames(end_time, sr)
-            audio_tensor = audio[start_frame:end_frame]
-
-            sub_ids.append(sub_id)
-            sources.append(data["metadata"]["data_source"])
-            audio_paths.append(audio_path)
-            start_times.append(start_time)
-            end_times.append(end_time)
-            texts.append(text)
-            texts_whisper.append(text_whisper)
-            bleu_whisper.append(bleu_whisper_score)
-            wer_whisper.append(wer_whisper_score)
-            first_whisper.append(first_whisper_score)
-            last_whisper.append(last_whisper_score)
-            bleu_wav2vec.append(bleu_wav2vec_score)
-            wer_wav2vec.append(wer_wav2vec_score)
-            first_wav2vec.append(first_wav2vec_score)
-            last_wav2vec.append(last_wav2vec_score)
-            audio_tensors.append(audio_tensor)
-            whisper_transcription, wav2vec_transcription = extract_transcription(chunk)
-            whisper_transcriptions.append(whisper_transcription)
-            wav2vec_transcriptions.append(wav2vec_transcription)
-
-    df = pd.DataFrame(
-        {
-            "sub_ids": sub_ids,
-            "source": sources,
-            "audio_path": audio_paths,
-            "start": start_times,
-            "end": end_times,
-            "text": texts,
-            "text_whisper": texts_whisper,
-            "whisper_transcription": whisper_transcriptions,
-            "wav2vec_transcription": wav2vec_transcriptions,
-            "bleu_whisper": bleu_whisper,
-            "wer_whisper": wer_whisper,
-            "first_whisper": first_whisper,
-            "last_whisper": last_whisper,
-            "bleu_wav2vec": bleu_wav2vec,
-            "wer_wav2vec": wer_wav2vec,
-            "first_wav2vec": first_wav2vec,
-            "last_wav2vec": last_wav2vec,
-            "filters.stage1_whisper": stages1_whisper,
-            "filters.stage2_whisper": stages2_whisper,
-            "filters.stage2_whisper_timestamps": stages2_whisper_timestamps,
-            "filters.stage1_wav2vec": stages1_wav2vec,
-            "filters.silence": silences,
-            "audio": audio_tensors,
-        }
+def calculate_scores(file_to_process, recalculate=False, save_as_new=False):
+    with open(file_to_process, "r") as fh:
+        d = json.load(fh)
+    # Check for ASRUN in metadata caption_file for the entire file
+    is_asrun = (
+        "metadata" in d
+        and "caption_file" in d["metadata"]
+        and "ASRUN" in d["metadata"]["caption_file"]
     )
-
-    parquet_dir = audio_path.split(".")[:-1]
-    df.to_parquet(".".join(parquet_dir + ["parquet"]))
-
-
+    skip = False
+    for i, chunk in enumerate(d["chunks"]):
+        if chunk["transcription"] != []:
+            whisper_scores, wav2vec_scores = None, None
+            if not recalculate and "filters" in chunk:
+                # skip if already processed and not recalculating
+                print(
+                    f"Skipping: {file_to_process}. Already processed. Use --recalculate to recalculate the scores."
+                )
+                skip = True
+                break
+            elif recalculate and "filters" not in chunk:
+                # skip if not processed and recalculating
+                print(
+                    f"Skipping: {file_to_process}, chunk: {i}. No scores to recalculate. Calculate scores first."
+                )
+                skip = True
+                break
+            elif not recalculate and "filters" not in chunk or recalculate and "filters" in chunk:
+                if recalculate and "filters" in chunk:
+                    # recalculate if already processed
+                    print(f"Recalculating: {file_to_process}, chunk: {i}")
+                elif not recalculate and "filters" not in chunk:
+                    # calculate if not processed
+                    print(f"Calculating: {file_to_process}, chunk: {i}")
+                gt = chunk["text"]
+                gt = normalize_text(gt)
+                gt_words = gt.split()
+                preds = chunk["transcription"]
+                # Initialize filters
+                chunk["filters"] = {
+                    "stage1_whisper": False,
+                    "stage2_whisper": False,
+                    "stage2_whisper_timestamps": False,
+                    "stage1_wav2vec": False,
+                    "silence": False,
+                }
+                for pred in preds:
+                    if "model" in pred:
+                        model = pred["model"]
+                        pt = pred["text"]
+                        pt = normalize_text(pt)
+                        pt_words = pt.split()
+                        if gt == "" and "wav2vec2" in model.lower() and pt == "":
+                            chunk["filters"]["silence"] = True
+                            pred["scores"] = {
+                                "bleu": 0.0,
+                                "wer": 0.0,
+                                "first": 0.0,
+                                "last": 0.0,
+                            }
+                        else:
+                            if gt != "" and pt != "":
+                                pred["scores"] = {
+                                    "bleu": calculate_bleu(gt, pt),
+                                    "wer": calculate_wer(gt, pt),
+                                    "first": fuzz.ratio(gt_words[0], pt_words[0]),
+                                    "last": fuzz.ratio(gt_words[-1], pt_words[-1]),
+                                }
+                            elif [gt == "" and pt != ""] or [gt != "" and pt == ""]:
+                                pred["scores"] = {
+                                    "bleu": 0.0,
+                                    "wer": 0.0,
+                                    "first": 0.0,
+                                    "last": 0.0,
+                                }
+                        if "wav2vec2" in model.lower():
+                            wav2vec_scores = pred["scores"]
+                        elif "whisper" in model.lower():
+                            whisper_scores = pred["scores"]
+                    else:
+                        print(f"Transcription missing in {file_to_process}, chunk: {i}")
+                        skip = True
+                        break
+                if whisper_scores is not None and wav2vec_scores is not None:
+                    # Apply different thresholds based on ASRUN
+                    if is_asrun:
+                        if wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.4:
+                            chunk["filters"]["stage1_whisper"] = True
+                        if whisper_scores["bleu"] > 0.8 and whisper_scores["wer"] < 0.2:
+                            chunk["filters"]["stage2_whisper"] = True
+                        if (
+                            whisper_scores["bleu"] > 0.8
+                            and whisper_scores["first"] >= 80.0
+                            and whisper_scores["last"] >= 80.0
+                            and whisper_scores["wer"] < 0.2
+                        ):
+                            chunk["filters"]["stage2_whisper_timestamps"] = True
+                        if (
+                            [wav2vec_scores["bleu"] > 0.4 or whisper_scores["bleu"] > 0.8]
+                            and whisper_scores["first"] >= 80.0
+                            and whisper_scores["last"] >= 80.0
+                            and wav2vec_scores["first"] >= 80.0
+                            and wav2vec_scores["last"] >= 80.0
+                            and whisper_scores["wer"] < 0.2
+                            and wav2vec_scores["wer"] < 0.2
+                        ):
+                            chunk["filters"]["stage1_wav2vec"] = True
+                    else:
+                        # Default filter values
+                        if wav2vec_scores["bleu"] > 0.11 or whisper_scores["bleu"] > 0.11:
+                            chunk["filters"]["stage1_whisper"] = True
+                        if whisper_scores["bleu"] > 0.8 and whisper_scores["wer"] < 0.2:
+                            chunk["filters"]["stage2_whisper"] = True
+                        if (
+                            whisper_scores["bleu"] > 0.8
+                            and whisper_scores["first"] >= 80.0
+                            and whisper_scores["last"] >= 80.0
+                            and whisper_scores["wer"] < 0.2
+                        ):
+                            chunk["filters"]["stage2_whisper_timestamps"] = True
+                        if (
+                            [wav2vec_scores["bleu"] > 0.11 or whisper_scores["bleu"] > 0.11]
+                            and whisper_scores["first"] >= 80.0
+                            and whisper_scores["last"] >= 80.0
+                            and wav2vec_scores["first"] >= 80.0
+                            and wav2vec_scores["last"] >= 80.0
+                            and whisper_scores["wer"] < 0.2
+                            and wav2vec_scores["wer"] < 0.2
+                        ):
+                            chunk["filters"]["stage1_wav2vec"] = True
+                else:
+                    print(f"Scores missing in {file_to_process}, chunk: {i}")
+                    skip = True
+                    break
+    if save_as_new and not skip:
+        file_to_save = file_to_process.split(".json")[0]
+        with open(file_to_save + "_scores.json", "w") as f:
+            json.dump(d, f, ensure_ascii=True, indent=4)
+    elif not save_as_new and not skip:
+        print(f"Saving to: {file_to_process}")
+        with open(file_to_process, "w") as f:
+            json.dump(d, f, ensure_ascii=False, indent=4)
 if __name__ == "__main__":
-
     args = get_args()
-
-    if args.source == "smdb":
-        # Read the json file with the audio and json file paths
-        audio_files = []
-        json_files = []
-
-        with open(args.json_files) as fh:
-            data = json.load(fh)
-
-        for entry in data:
-            create_parquet(entry[0], entry[1], type="smdb")
-
-    else:
-        # Read the txt with JSON file paths
-        with open(args.json_files, "r") as f:
-            json_file_paths = f.read().splitlines()
-            for json_file_path in json_file_paths:
-                create_parquet(json_file_path)
+    json_files = []
+    with open(args.json_files) as fh:
+        for line in fh:
+            json_files.append(line.strip())
+    # with Pool(args.num_proc) as pool:
+    #    results = pool.starmap(calculate_scores, [(file, args.recalculate, args.save_as_new) for file in json_files])
+    for file in json_files:
+        print(f"Processing of: {file} started")
+        calculate_scores(file, args.recalculate, args.save_as_new)
