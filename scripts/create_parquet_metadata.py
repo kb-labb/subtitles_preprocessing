@@ -55,6 +55,19 @@ def get_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
+def extract_transcription(chunk):
+    transcriptions = chunk["transcription"]
+
+    for transcription in transcriptions:
+        if transcription["model"] == "openai/whisper-large-v3":
+            print(transcription["text"])
+            whisper_transcription = transcription["text"]
+            
+        elif transcription["model"] == "KBLab/wav2vec2-large-voxrex-swedish":
+            wav2vec_transcription = transcription["text"]
+
+    return whisper_transcription, wav2vec_transcription
+
 
 def create_parquet(json_file, audio_path=None, type=None):
 
@@ -79,10 +92,13 @@ def create_parquet(json_file, audio_path=None, type=None):
     silences = []
     sources = []
     audio_tensors = []
+    whisper_transcriptions = []
+    wav2vec_transcriptions = []
 
     with open(json_file, "r") as f:
         data = json.load(f)
-
+    print(data)
+    
     json_dir = os.path.dirname(json_file)
     json_base_name = os.path.splitext(os.path.basename(json_file))[0]
 
@@ -91,8 +107,10 @@ def create_parquet(json_file, audio_path=None, type=None):
     else:
         # Find the audio extension for the file
         filename = os.path.join(json_dir, f'{json_base_name.split(".")[0]}')
+        print(filename)
         audio_path = find_audio_extension(filename)
 
+    print(f"Processing {audio_path}")
     # Read the source audio file for the chunks
     audio, sr = convert_and_read_audio(audio_path)
 
@@ -167,16 +185,21 @@ def create_parquet(json_file, audio_path=None, type=None):
             first_wav2vec.append(first_wav2vec_score)
             last_wav2vec.append(last_wav2vec_score)
             audio_tensors.append(audio_tensor)
+            whisper_transcription, wav2vec_transcription = extract_transcription(chunk)
+            whisper_transcriptions.append(whisper_transcription)
+            wav2vec_transcriptions.append(wav2vec_transcription)
 
     df = pd.DataFrame(
         {
-            "sub_id": sub_ids,
+            "sub_ids": sub_ids,
             "source": sources,
-            "audio": audio_paths,
-            "start_time": start_times,
-            "end_time": end_times,
+            "audio_path": audio_paths,
+            "start": start_times,
+            "end": end_times,
             "text": texts,
             "text_whisper": texts_whisper,
+            "whisper_transcription": whisper_transcriptions,
+            "wav2vec_transcription": wav2vec_transcriptions,
             "bleu_whisper": bleu_whisper,
             "wer_whisper": wer_whisper,
             "first_whisper": first_whisper,
@@ -185,12 +208,12 @@ def create_parquet(json_file, audio_path=None, type=None):
             "wer_wav2vec": wer_wav2vec,
             "first_wav2vec": first_wav2vec,
             "last_wav2vec": last_wav2vec,
-            "stage1_whisper": stages1_whisper,
-            "stage2_whisper": stages2_whisper,
-            "stage2_whisper_timestamps": stages2_whisper_timestamps,
-            "stage1_wav2vec": stages1_wav2vec,
-            "silence": silences,
-            "audio_tensor": audio_tensors,
+            "filters.stage1_whisper": stages1_whisper,
+            "filters.stage2_whisper": stages2_whisper,
+            "filters.stage2_whisper_timestamps": stages2_whisper_timestamps,
+            "filters.stage1_wav2vec": stages1_wav2vec,
+            "filters.silence": silences,
+            "audio": audio_tensors,
         }
     )
 
