@@ -60,7 +60,6 @@ def extract_transcription(chunk):
 
     for transcription in transcriptions:
         if transcription["model"] == "openai/whisper-large-v3":
-            print(transcription["text"])
             whisper_transcription = transcription["text"]
             
         elif transcription["model"] == "KBLab/wav2vec2-large-voxrex-swedish":
@@ -97,8 +96,7 @@ def create_parquet(json_file, audio_path=None, type=None):
 
     with open(json_file, "r") as f:
         data = json.load(f)
-    print(data)
-    
+        
     json_dir = os.path.dirname(json_file)
     json_base_name = os.path.splitext(os.path.basename(json_file))[0]
 
@@ -107,10 +105,9 @@ def create_parquet(json_file, audio_path=None, type=None):
     else:
         # Find the audio extension for the file
         filename = os.path.join(json_dir, f'{json_base_name.split(".")[0]}')
-        print(filename)
+
         audio_path = find_audio_extension(filename)
 
-    print(f"Processing {audio_path}")
     # Read the source audio file for the chunks
     audio, sr = convert_and_read_audio(audio_path)
 
