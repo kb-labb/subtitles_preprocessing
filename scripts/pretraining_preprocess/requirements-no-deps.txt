@@ -1,0 +1,2 @@
+sub_preproc @ git+https://github.com/kb-labb/subtitles_preprocessing@main
+rixvox @ git+https://github.com/kb-labb/rixvox@main

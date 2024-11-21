@@ -1,0 +1,11 @@
+torch --index-url https://download.pytorch.org/whl/cu121
+torchaudio --index-url https://download.pytorch.org/whl/cu121
+packaging
+ninja
+datasets
+transformers
+tqdm
+jiwer
+nltk
+rapidfuzz
+num2words
