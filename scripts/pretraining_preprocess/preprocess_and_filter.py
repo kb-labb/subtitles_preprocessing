@@ -1,4 +1,5 @@
 import argparse
+import gc
 import logging
 import os
 import re
@@ -33,7 +34,7 @@ argparser.add_argument(
     "--data_dir",
     type=str,
     required=True,
-    # default="/leonardo_work/EUHPC_A01_006/data/big_parquets/svt",
+    # default="/leonardo_work/EUHPC_A01_006/data/big_parquets/youtube",
     help="Directory where all the parquets are stored.",
 )
 argparser.add_argument(
@@ -47,14 +48,14 @@ argparser.add_argument(
     "--parquet_filename",
     type=str,
     required=True,
-    # default="svt1_0365.parquet",
+    # default="youtube_new_1.parquet",
     help="Filename of the parquet file to process.",
 )
 argparser.add_argument(
     "--dataset",
     type=str,
     choices=["svt", "rixvox", "smdb", "youtube", "isof", "sls"],
-    default="svt",
+    default="youtube",
     help="Dataset source to preprocess.",
 )
 argparser.add_argument(
@@ -247,9 +248,7 @@ def clean_text(text, svt=False):
         # fmt: on
 
         # Regex  to match any of the words as a stem
-        pattern = (
-            r"\b(?:" + "|".join(word + r"\w*" for word in capitalized_words) + r")\b"
-        )
+        pattern = r"\b(?:" + "|".join(word + r"\w*" for word in capitalized_words) + r")\b"
 
         # Find any segment of capitalized words
         capitalized_segment_pattern = r"(\b[A-ZÅÄÖ]+\b(?:\s+\b[A-ZÅÄÖ]+\b)*)"
@@ -316,9 +315,7 @@ def calculate_metrics(row, score_function: callable, normalize_text: callable):
     return score_whisper, score_wav2vec
 
 
-def tokenize_ground_truth(
-    row, text_column, text_timestamps_column, tokenizer, truncation=False
-):
+def tokenize_ground_truth(row, text_column, text_timestamps_column, tokenizer, truncation=False):
     """
     Args:
         row: row of the DataFrame
@@ -366,18 +363,12 @@ def extract_audio_features(
 def get_all_metrics(df):
 
     normalize_text_fun = (
-        rixvox_text.normalize_text
-        if args.dataset == "rixvox"
-        else sub_preproc_text.normalize_text
+        rixvox_text.normalize_text if args.dataset == "rixvox" else sub_preproc_text.normalize_text
     )
 
     df["text_normalized"] = df["text"].apply(normalize_text_fun)
-    df["whisper_transcription_normalized"] = df["whisper_transcription"].apply(
-        normalize_text_fun
-    )
-    df["wav2vec_transcription_normalized"] = df["wav2vec_transcription"].apply(
-        normalize_text_fun
-    )
+    df["whisper_transcription_normalized"] = df["whisper_transcription"].apply(normalize_text_fun)
+    df["wav2vec_transcription_normalized"] = df["wav2vec_transcription"].apply(normalize_text_fun)
 
     df[["bleu_whisper", "bleu_wav2vec2"]] = df.apply(
         calculate_metrics,
@@ -604,6 +595,19 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
             df,
             stage,
         )
+        # We made too many short chunks in Youtube, so sample a subet of them
+        if (len(df) > 5000):
+            df_short = df[(df["duration"] <= 5) & ~df["is_silence"]]
+            df_long = df[(df["duration"] > 5) | df["is_silence"]]
+
+            # Sample 30% of the short chunks
+            df_short = df_short.sample(frac=0.3)
+
+            df = pd.concat([df_short, df_long])
+            # Delete and garbage collect the DataFrames
+            del df_short, df_long
+            gc.collect()
+
     elif dataset == "isof":
         df = filter_general(
             df,
@@ -827,8 +831,8 @@ if __name__ == "__main__":
 
     #### 5. Filter the dataset based on the stage and dataset
     df = filter_dataset(df, config, args.dataset, args.stage, apply_filter=True)
-
-    # 5a) Statistics for the dataset after filtering
+        
+    # 5b) Statistics for the dataset after filtering
     write_summary_statistics(df, args.stats_dir, args.dataset, args.stage)
 
     if args.stats_only:
@@ -837,7 +841,6 @@ if __name__ == "__main__":
 
     # Add data source to the DataFrame
     df["data_source"] = args.dataset
-
     
     #### 6. Save the processed DataFrame to disk as a parquet file
     # Standardize audio_path name
@@ -864,7 +867,6 @@ if __name__ == "__main__":
         "data_source"
     ]].reset_index(drop=True)
     
-
     # 6b) Save the processed DataFrame to disk as a parquet file
     # Get the last directory in the data_dir path
     data_dir = Path(args.data_dir).parts[-1]
