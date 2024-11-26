@@ -452,9 +452,13 @@ def filter_svt(df, stage=args.stage):
             | df["is_silence"]
         )
     elif stage == "stage2":
-        df["stage2"] = ((df["bleu_whisper"] >= 0.8) & df["as_run"]) | (
-            (df["bleu_whisper"] >= 0.4) & ~df["as_run"]
+        # fmt: off
+        df["stage2"] = (
+            ((df["bleu_whisper"] >= 0.8) & df["as_run"]) 
+            | ((df["bleu_whisper"] >= 0.4) & ~df["as_run"])
+            | df["is_silence"]
         )
+        # fmt: on
     elif stage == "stage_wav2vec2":
         df["stage_wav2vec2"] = (
             ((df["whisper_cer_head"] <= 0.2) & (df["whisper_cer_tail"] <= 0.2))
@@ -475,8 +479,6 @@ def filter_svt(df, stage=args.stage):
             | ((df["bleu_whisper"] >= 0.6) & ~df["as_run"])
         )
     )
-
-    df[df["stage2_whisper_timestamps"]]
 
     return df
 
@@ -515,17 +517,17 @@ def filter_general(
     if stage == "stage1":
         df["stage1"] = (df["bleu_whisper"] >= stage1_bleu) | df["is_silence"]
     elif stage == "stage2":
-        df["stage2"] = df[
+        df["stage2"] = (
             (
                 (df["whisper_cer_head"] <= stage2_cer_head)
                 & (df["whisper_cer_tail"] <= stage2_cer_tail)
             )
             & (df["bleu_whisper"] >= stage2_bleu)
             | df["is_silence"]
-        ]
+        )
 
     elif stage == "stage_wav2vec2":
-        df["stage_wav2vec2"] = df[
+        df["stage_wav2vec2"] = (
             (
                 (df["whisper_cer_head"] <= stage2_cer_head)
                 & (df["whisper_cer_tail"] <= stage2_cer_tail)
@@ -540,7 +542,7 @@ def filter_general(
                 & (df["whisper_cer_head"] <= 0.2)
                 & (df["whisper_cer_tail"] <= 0.2)
             )
-        ]
+        )
 
     # Training with timestamps is a subset of stage1 and stage2 with additional stricter filters
     # We need this column in those stages to determine when to train with timestamps.
@@ -753,127 +755,131 @@ def write_summary_statistics(df, stats_dir, dataset, stage):
 
 
 if __name__ == "__main__":
-    logging.info(f"Beginning {args.stage} preprocessing of {args.dataset} dataset.")
 
-    # 0. If output file already exists and is not empty, skip the preprocessing
-    data_dir = Path(args.data_dir).parts[-1]
-    output_dir = Path(args.output_dir) / args.stage / data_dir
-    os.makedirs(output_dir, exist_ok=True)
-    
-    output_path = output_dir / args.parquet_filename
-    
-    if os.path.exists(output_path) and not args.overwrite and not args.stats_only:
-        if os.path.getsize(output_path) > 0:
-            logging.info(f"File {output_path} exists and is not empty. Skipping preprocessing.")
+    try:
+        logging.info(f"Beginning {args.stage} preprocessing of {args.dataset} dataset.")
+
+        # 0. If output file already exists and is not empty, skip the preprocessing
+        data_dir = Path(args.data_dir).parts[-1]
+        output_dir = Path(args.output_dir) / args.stage / data_dir
+        os.makedirs(output_dir, exist_ok=True)
+        
+        output_path = output_dir / args.parquet_filename
+        
+        if os.path.exists(output_path) and not args.overwrite and not args.stats_only:
+            if os.path.getsize(output_path) > 0:
+                logging.info(f"File {output_path} exists and is not empty. Skipping preprocessing.")
+                exit()
+
+        # 1. Load the input parquet file
+        input_path = os.path.join(args.data_dir, args.parquet_filename)
+        logging.info(f"Loading the dataset: {input_path}.")
+        df = pd.read_parquet(input_path)
+
+        # 2. Load pretrained model config, tokenizer, and feature extractor
+        config = AutoConfig.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+        )
+        feature_extractor = AutoFeatureExtractor.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+        )
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model_name_or_path,
+            cache_dir=args.cache_dir,
+            add_prefix_space=True,
+        )
+
+        # 3. Regularization settings.
+        #   a) BPE dropout in the tokenizer (randomly uses different subwords to encode the same word)
+        if args.bpe_dropout > 0:
+            # Need a workaround to successfully load the tokenizer with BPE dropout.
+            # See https://github.com/huggingface/tokenizers/issues/201#issue-584182286
+            # Should only be used for training, not for inference/eval.
+            workaround_files = tokenizer._tokenizer.model.save(args.cache_dir, "training_tokenizer")
+            tokenizer._tokenizer.model = BPE.from_file(*workaround_files, dropout=args.bpe_dropout)
+
+        tokenizer.set_prefix_tokens(
+            language=args.language, task=args.task
+        )  # Set predict_timestamps later
+
+        #   b) SpecAugment (this doesn't apply SpecAugment, but sets feature extractor to return attention mask)
+        config.apply_spec_augment = args.apply_spec_augment
+        config.mask_time_prob = args.mask_time_prob
+
+        # Whether or not to return attention mask is decided by whether we are using SpecAugment or not
+        return_attention_mask = (
+            getattr(config, "model_type", None) == "whisper"
+            and getattr(config, "apply_spec_augment", False)
+            and getattr(config, "mask_time_prob", 0) > 0
+        )
+
+        #### 4. Preprocessing step to clean text, tokenize, get feature vectors, re-calculate metrics, and apply filters
+        logging.info(f"Preprocessing the dataset: {input_path}.")
+        df = prepare_dataset(
+            df,
+            feature_extractor,
+            return_attention_mask,
+            tokenizer,
+            is_svt=args.dataset == "svt",
+        )
+
+        # # 4a) Sanity check that audio tensor input_length roughly matches duration metadata
+        # df["input_length"] = df["audio_tensor"].apply(len)
+        # df["duration_tensor"] = df["input_length"] / args.sampling_rate
+
+        # 4b) Statistics for the dataset before filtering
+        write_summary_statistics(df, args.stats_dir, args.dataset, stage="original")
+
+        #### 5. Filter the dataset based on the stage and dataset
+        df = filter_dataset(df, config, args.dataset, args.stage, apply_filter=True)
+            
+        # 5b) Statistics for the dataset after filtering
+        write_summary_statistics(df, args.stats_dir, args.dataset, args.stage)
+
+        if args.stats_only:
+            logging.info("Summary statistics written to disk. Exiting.")
             exit()
 
-    # 1. Load the input parquet file
-    input_path = os.path.join(args.data_dir, args.parquet_filename)
-    logging.info(f"Loading the dataset: {input_path}.")
-    df = pd.read_parquet(input_path)
-
-    # 2. Load pretrained model config, tokenizer, and feature extractor
-    config = AutoConfig.from_pretrained(
-        args.model_name_or_path,
-        cache_dir=args.cache_dir,
-    )
-    feature_extractor = AutoFeatureExtractor.from_pretrained(
-        args.model_name_or_path,
-        cache_dir=args.cache_dir,
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name_or_path,
-        cache_dir=args.cache_dir,
-        add_prefix_space=True,
-    )
-
-    # 3. Regularization settings.
-    #   a) BPE dropout in the tokenizer (randomly uses different subwords to encode the same word)
-    if args.bpe_dropout > 0:
-        # Need a workaround to successfully load the tokenizer with BPE dropout.
-        # See https://github.com/huggingface/tokenizers/issues/201#issue-584182286
-        # Should only be used for training, not for inference/eval.
-        workaround_files = tokenizer._tokenizer.model.save(args.cache_dir, "training_tokenizer")
-        tokenizer._tokenizer.model = BPE.from_file(*workaround_files, dropout=args.bpe_dropout)
-
-    tokenizer.set_prefix_tokens(
-        language=args.language, task=args.task
-    )  # Set predict_timestamps later
-
-    #   b) SpecAugment (this doesn't apply SpecAugment, but sets feature extractor to return attention mask)
-    config.apply_spec_augment = args.apply_spec_augment
-    config.mask_time_prob = args.mask_time_prob
-
-    # Whether or not to return attention mask is decided by whether we are using SpecAugment or not
-    return_attention_mask = (
-        getattr(config, "model_type", None) == "whisper"
-        and getattr(config, "apply_spec_augment", False)
-        and getattr(config, "mask_time_prob", 0) > 0
-    )
-
-    #### 4. Preprocessing step to clean text, tokenize, get feature vectors, re-calculate metrics, and apply filters
-    logging.info(f"Preprocessing the dataset: {input_path}.")
-    df = prepare_dataset(
-        df,
-        feature_extractor,
-        return_attention_mask,
-        tokenizer,
-        is_svt=args.dataset == "svt",
-    )
-
-    # # 4a) Sanity check that audio tensor input_length roughly matches duration metadata
-    # df["input_length"] = df["audio_tensor"].apply(len)
-    # df["duration_tensor"] = df["input_length"] / args.sampling_rate
-
-    # 4b) Statistics for the dataset before filtering
-    write_summary_statistics(df, args.stats_dir, args.dataset, stage="original")
-
-    #### 5. Filter the dataset based on the stage and dataset
-    df = filter_dataset(df, config, args.dataset, args.stage, apply_filter=True)
+        # Add data source to the DataFrame
+        df["data_source"] = args.dataset
         
-    # 5b) Statistics for the dataset after filtering
-    write_summary_statistics(df, args.stats_dir, args.dataset, args.stage)
+        #### 6. Save the processed DataFrame to disk as a parquet file
+        # Standardize audio_path name
+        if "audio_path" in df.columns:
+            pass
+        elif "audio_file" in df.columns:
+            df.rename(columns={"audio_file": "audio_path"}, inplace=True)
+        
+        # pandas can't save 2d array to parquet, so convert to list of arrays
+        df["input_features"] = df["input_features"].apply(lambda x: list(x))
+        
+        # 6a) Select relevant columns
+        df = df[[
+            "input_features",
+            "attention_mask",
+            "labels",
+            "labels_timestamps",
+            "text",
+            "text_timestamps",
+            "duration",
+            "audio_path",
+            "is_silence",
+            "stage2_whisper_timestamps",
+            "data_source"
+        ]].reset_index(drop=True)
+        
+        # 6b) Save the processed DataFrame to disk as a parquet file
+        # Get the last directory in the data_dir path
+        data_dir = Path(args.data_dir).parts[-1]
+        output_dir = Path(args.output_dir) / args.stage / data_dir
+        os.makedirs(output_dir, exist_ok=True)
+        
+        output_filename = output_dir / args.parquet_filename
 
-    if args.stats_only:
-        logging.info("Summary statistics written to disk. Exiting.")
-        exit()
-
-    # Add data source to the DataFrame
-    df["data_source"] = args.dataset
-    
-    #### 6. Save the processed DataFrame to disk as a parquet file
-    # Standardize audio_path name
-    if "audio_path" in df.columns:
-        pass
-    elif "audio_file" in df.columns:
-        df.rename(columns={"audio_file": "audio_path"}, inplace=True)
-    
-    # pandas can't save 2d array to parquet, so convert to list of arrays
-    df["input_features"] = df["input_features"].apply(lambda x: list(x))
-    
-    # 6a) Select relevant columns
-    df = df[[
-        "input_features",
-        "attention_mask",
-        "labels",
-        "labels_timestamps",
-        "text",
-        "text_timestamps",
-        "duration",
-        "audio_path",
-        "is_silence",
-        "stage2_whisper_timestamps",
-        "data_source"
-    ]].reset_index(drop=True)
-    
-    # 6b) Save the processed DataFrame to disk as a parquet file
-    # Get the last directory in the data_dir path
-    data_dir = Path(args.data_dir).parts[-1]
-    output_dir = Path(args.output_dir) / args.stage / data_dir
-    os.makedirs(output_dir, exist_ok=True)
-    
-    output_filename = output_dir / args.parquet_filename
-
-    logging.info(f"Saving the processed dataset to: {output_filename}.")
-    df.to_parquet(output_filename, index=False)
+        logging.info(f"Saving the processed dataset to: {output_filename}.")
+        df.to_parquet(output_filename, index=False)
+    except Exception as e:
+        logging.exception(f"Error in preprocessing: {e}", stack_info=True)
