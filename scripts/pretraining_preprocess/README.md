@@ -33,6 +33,48 @@ pip install -r requirements.txt
 pip install --no-deps -r requirements-no-deps.txt
 ```
 
+#### Download tokenizer, config and feature extractor
+
+Compute nodes don't have access to the internet, so you need to download the tokenizer, config and feature extractor before running the preprocessing script. Run the following script to download and cache the files:
+
+```python
+import argparse
+from transformers import AutoConfig, AutoFeatureExtractor, AutoTokenizer
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument(
+    "--model_name_or_path",
+    type=str,
+    default="openai/whisper-small",
+    help="""Tiny, base, small and medium have the same preprocessing.
+    Large uses different settings for the FeatureExtractor, so need 
+    to run the preprocessing separately for large models.""",
+)
+argparser.add_argument(
+    "--cache_dir",
+    type=str,
+    default="cache",
+    help="Directory to cache the downloaded tokenizer/feature extractor/model weights.",
+)
+args = argparser.parse_args()
+
+# 2. Load pretrained model config, tokenizer, and feature extractor
+config = AutoConfig.from_pretrained(
+    args.model_name_or_path,
+    cache_dir=args.cache_dir,
+)
+feature_extractor = AutoFeatureExtractor.from_pretrained(
+    args.model_name_or_path,
+    cache_dir=args.cache_dir,
+)
+
+tokenizer = AutoTokenizer.from_pretrained(
+    args.model_name_or_path,
+    cache_dir=args.cache_dir,
+    add_prefix_space=True,
+)
+```
+
 ### Run preprocessing
 
 The preprocessing script is `preprocess_and_filter.py`. The script `launch_preprocessing.sh` helps you launch one SLURM job per parquet shard. 

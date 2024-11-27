@@ -17,6 +17,7 @@ PARQUET_FILES=$(ls ${DATA_DIR}/${GLOB_PATTERN})
 #     fi
 # done
 
+mkdir -p logs # Create logs directory if it doesn't exist
 
 # source venvs/whisper/bin/activate
 
