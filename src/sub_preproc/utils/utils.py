@@ -409,7 +409,80 @@ def textgrid_to_dict(
             )
 
     return subs_dict
+def pandas_to_dict(
+    subs,
+    audio_path,
+    area = None
+) -> dict:
 
+    if area is not None:
+        subs_dict = {
+            "metadata": {
+                "audio_path": audio_path,
+                "dialect": area
+            },
+            "subs": []
+        }
+    else:
+        subs_dict = {
+            "metadata": {
+                "audio_path": audio_path
+            },
+            "subs": []
+        }
+
+    for index, sub in subs.iterrows(): 
+        sub_start = srt_s_to_ms(sub['sub_start'])
+        sub_end = srt_s_to_ms(sub['sub_end'])
+        duration = sub_end - sub_start
+
+        if duration != 0 and "trans" not in sub['speaker_id']:
+            subs_dict["subs"].append(
+                {
+                    "start": sub_start,
+                    "end": sub_end,
+                    "duration": duration,
+                    "text": sub['text'],
+                    "speaker_id": sub['speaker_id'],               
+                }
+            )
+            
+    return subs_dict
+
+
+def add_silence(
+    subs_dict: dict
+) -> dict:
+
+    end = subs_dict['subs'][0]['start']
+    subs_with_silence = []
+    
+    subs_list = subs_dict['subs']
+
+    for sub in subs_list:
+        if end != sub['start']:
+            subs_with_silence.append(
+                {
+                    'start': end,
+                    'end': sub['start'],
+                    'duration': sub['start'] - end,
+                    'text': SILENCE,
+                }
+            )
+        
+        end = sub['end']
+        subs_with_silence.append(
+            {
+                'start': sub['start'],
+                'end': sub['end'],
+                'duration': sub['end'] - sub['start'],
+                'text': sub['text'],
+                "speaker_id": sub['speaker_id'],
+            }
+        )
+
+    return {'metadata': subs_dict['metadata'],
+            'subs': subs_with_silence}
 
 if __name__ == "__main__":
     # fn = "/home/robkur/workspace/subtitles_preprocessing/srt_only_dedup/XA/tv4/tv4/2022/12/15/XA_tv4_tv4_2022-12-15_090000_100000/file.srt"
