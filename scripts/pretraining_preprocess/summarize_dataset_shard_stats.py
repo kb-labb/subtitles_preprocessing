@@ -18,7 +18,7 @@ parser.add_argument(
     "--data_dir",
     type=str,
     help="Directory containing the stage stats data",
-    default="/leonardo_work/EUHPC_A01_006/data/big_parquets/stats",
+    default="/leonardo_work/EUHPC_A01_006/data/big_parquets/stats_alt",
 )
 args = parser.parse_args()
 
@@ -26,6 +26,7 @@ args = parser.parse_args()
 def get_summary_statistics(df, dataset):
     n_obs = float(df["n"].sum())
     n_silence = float(df["n_silence"].sum())
+    n_previous_text = float(df["n_previous_text"].sum())
     n_words = float(df["n_words"].sum())
     n_tokens = float(df["n_tokens"].sum())
     duration = float(df["duration_hours"].sum())
@@ -41,6 +42,7 @@ def get_summary_statistics(df, dataset):
         "dataset": dataset,
         "n_obs": n_obs,
         "n_silence": n_silence,
+        "n_previous_text": n_previous_text,
         "n_words": n_words,
         "n_tokens": n_tokens,
         "duration_hours": duration,
@@ -92,9 +94,7 @@ if __name__ == "__main__":
 
     # Summary stats for the entire stage
     summary_stats = get_summary_statistics(df_all, args.stage)
-    output_file = os.path.join(
-        args.data_dir, args.stage, f"{args.stage}_total_stats.json"
-    )
+    output_file = os.path.join(args.data_dir, args.stage, f"{args.stage}_total_stats.json")
     print(f"Writing summary stats for the entire stage to {output_file}")
 
     # Write summary stats to file

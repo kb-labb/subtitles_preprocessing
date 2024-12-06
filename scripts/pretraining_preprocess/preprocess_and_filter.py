@@ -33,29 +33,29 @@ argparser = argparse.ArgumentParser()
 argparser.add_argument(
     "--data_dir",
     type=str,
-    required=True,
-    # default="/leonardo_work/EUHPC_A01_006/data/big_parquets/youtube",
+    # required=True,
+    default="/leonardo_work/EUHPC_A01_006/data/big_parquets/svt",
     help="Directory where all the parquets are stored.",
 )
 argparser.add_argument(
     "--output_dir",
     type=str,
-    required=True,
-    # default="/leonardo_scratch/fast/EUHPC_A01_006",
+    # required=True,
+    default="/leonardo_scratch/fast/EUHPC_A01_006",
     help="Directory where the processed data will be saved.",
 )
 argparser.add_argument(
     "--parquet_filename",
     type=str,
-    required=True,
-    # default="youtube_new_1.parquet",
+    # required=True,
+    default="svt1_0135.parquet",
     help="Filename of the parquet file to process.",
 )
 argparser.add_argument(
     "--dataset",
     type=str,
     choices=["svt", "rixvox", "smdb", "youtube", "isof", "sls"],
-    default="youtube",
+    default="svt",
     help="Dataset source to preprocess.",
 )
 argparser.add_argument(
@@ -156,7 +156,18 @@ argparser.add_argument(
     default=480000,
     help="Minimum length of input audio.",
 )
-
+argparser.add_argument(
+    "--max_label_length",
+    type=int,
+    default=448,
+    help="Maximum length of the tokenized labels.",
+)
+argparser.add_argument(
+    "--max_previous_text_length",
+    type=int,
+    default=192,
+    help="Maximum length of the tokenized prompt text before we truncate (on the left).",
+)
 argparser.add_argument(
     "--stats_dir",
     type=str,
@@ -339,6 +350,32 @@ def tokenize_ground_truth(row, text_column, text_timestamps_column, tokenizer, t
     return labels, labels_timestamps, labels_length, labels_timestamps_length
 
 
+def tokenize_prompt(row, text_column, tokenizer, truncation=False, max_length=192):
+    """
+    Args:
+        row: row of the DataFrame
+        text_column: column name of the text
+        tokenizer: tokenizer
+        truncation: whether to truncate the tokenized text to max_length of the model
+    """
+    text = row[text_column]
+
+    if text is None:
+        return None, 0
+
+    tokenizer.set_prefix_tokens(predict_timestamps=False)
+    prompt_tokens = tokenizer(text, truncation=truncation, add_special_tokens=False).input_ids
+
+    # Truncate and -1 for <|startofprev|>
+    prompt_tokens_left_truncated = prompt_tokens[-(max_length - 1) :]
+    prompt_with_start_token = [tokenizer.convert_tokens_to_ids("<|startofprev|>")]
+    prompt_with_start_token.extend(prompt_tokens_left_truncated)
+
+    previous_tokens_length = len(prompt_with_start_token)
+
+    return prompt_with_start_token, previous_tokens_length
+
+
 def extract_audio_features(
     row, feature_extractor, return_attention_mask, sampling_rate=args.sampling_rate
 ):
@@ -454,8 +491,16 @@ def filter_svt(df, stage=args.stage):
     elif stage == "stage2":
         # fmt: off
         df["stage2"] = (
-            ((df["bleu_whisper"] >= 0.8) & df["as_run"]) 
-            | ((df["bleu_whisper"] >= 0.4) & ~df["as_run"])
+            (((df["bleu_whisper"] >= 0.7) & df["as_run"])
+            & (
+                (df["whisper_cer_head"] <= 0.3)
+                & (df["whisper_cer_tail"] <= 0.3)
+            ))
+            | (((df["bleu_whisper"] >= 0.4) & ~df["as_run"])
+            & (
+                (df["whisper_cer_head"] <= 0.4)
+                & (df["whisper_cer_tail"] <= 0.4)
+            ))
             | df["is_silence"]
         )
         # fmt: on
@@ -571,7 +616,7 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
         config: HF model config
         dataset: Name of the dataset
         stage: Name of the stage
-        apply_filter: Whether to apply the filter or just return df with boolean columns
+        apply_filter: Whether to apply the filter or just return entire df with boolean columns
     Returns:
         df: Filtered DataFrame
     """
@@ -592,6 +637,19 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
             df,
             stage,
         )
+
+        # We made too many short chunks in Youtube, so sample a subet of them
+        if (len(df) > 5000):
+            df_short = df[(df["duration"] <= 10) & ~df["is_silence"]]
+            df_long = df[(df["duration"] > 10) | df["is_silence"]]
+
+            # Sample 30% of the short chunks
+            df_short = df_short.sample(frac=0.3)
+
+            df = pd.concat([df_short, df_long])
+            # Delete and garbage collect the DataFrames
+            del df_short, df_long
+            gc.collect()
     elif dataset == "youtube":
         df = filter_general(
             df,
@@ -599,11 +657,11 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
         )
         # We made too many short chunks in Youtube, so sample a subet of them
         if (len(df) > 5000):
-            df_short = df[(df["duration"] <= 5) & ~df["is_silence"]]
-            df_long = df[(df["duration"] > 5) | df["is_silence"]]
+            df_short = df[(df["duration"] <= 15) & ~df["is_silence"]]
+            df_long = df[(df["duration"] > 15) | df["is_silence"]]
 
-            # Sample 30% of the short chunks
-            df_short = df_short.sample(frac=0.3)
+            # Sample 10% of the short chunks
+            df_short = df_short.sample(frac=0.1)
 
             df = pd.concat([df_short, df_long])
             # Delete and garbage collect the DataFrames
@@ -622,9 +680,6 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
         )
     # fmt: on
 
-    if apply_filter:
-        return df[df[stage]]
-
     # Remove if audio too short or too long
     df = df[
         (df["input_length"] >= args.min_input_length)
@@ -635,17 +690,61 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
     df = df[(df["labels_length"] <= config.max_length)]
 
     # Remove if tokenized text with timestamps too long
-    print(f'Number of obs exceeding token max length with timestamps: {len(df[(df["labels_timestamps_length"] <= config.max_length)])}')
+    logging.info(f'Number of obs exceeding token max length: {len(df[(df["labels_length"] > config.max_length)])}')
     df = df[(df["labels_timestamps_length"] <= config.max_length)]
+
+    if apply_filter:
+        # Return only rows from relevant stage
+        return df[df[stage]]
 
     return df
 
 
+def add_prev_text_column(df, dataset=args.dataset):
+    """
+    Add previous text column if the timestamps from consecutive rows match.
+    Previous text can be used as prompt during training.
+    """
+
+    if dataset == "rixvox":
+        df = df.sort_values(["speech_id", "chunk_id"])
+        df["end_prev"] = df["end"].shift(1)
+
+        # If "start" of the current row is equal to "end_prev" then insert the previous row's text
+        df["prev_text_bool"] = df["start"] == df["end_prev"]
+        df["previous_text"] = df["text"].shift(1)
+        df.loc[~df["prev_text_bool"], "previous_text"] = None
+    elif dataset == "svt" or dataset == "smdb" or dataset == "youtube":
+        if dataset == "smdb" or dataset == "youtube":
+            # sub_ids can sometimes be a string list that needs to be converted to a list with pd.eval
+            df["sub_ids"] = df["sub_ids"].apply(pd.eval)
+
+        if dataset == "youtube":
+            # Remove rows with no sub_ids
+            df["len_subids"] = df["sub_ids"].apply(len)
+            df = df[df["len_subids"] > 0]
+
+        df["sub_id_first"] = df["sub_ids"].apply(lambda x: abs(x[0]))
+        df["sub_id_last"] = df["sub_ids"].apply(lambda x: abs(x[-1]))
+        df = df.sort_values(["audio_path", "sub_id_first"]).reset_index(drop=True)
+        df["end_prev"] = df["end"].shift(1)
+
+        df["prev_text_bool"] = df["start"] == df["end_prev"]
+        df["previous_text"] = df["text"].shift(1)
+        df.loc[~df["prev_text_bool"], "previous_text"] = None
+    else:
+        df["previous_text"] = None
+        logging.warning("No previous text column added for this dataset. Please implement in add_prev_text_column.")
+
+    return df["previous_text"]
+        
 def prepare_dataset(
     df,
     feature_extractor,
     return_attention_mask,
     tokenizer,
+    max_previous_text_length=args.max_previous_text_length,
+    dataset=args.dataset,
     is_svt=False,
 ):
     """
@@ -654,13 +753,17 @@ def prepare_dataset(
         feature_extractor: feature extractor
         return_attention_mask: whether to return attention mask
         tokenizer: tokenizer
+        dataset: Name of the dataset
         is_svt: whether the dataset is from SVT
     """
+
     # Clean the text to be more consistently formatted
     df["text"] = df["text"].apply(clean_text, args=(is_svt,))
     df["n_words"] = df["text"].apply(lambda x: len(x.split()))
     df["text_timestamps"] = df["text_whisper"].apply(clean_text, args=(is_svt,))
     
+    # Add previous text column to use as prompt during training
+    df["previous_text"] = add_prev_text_column(df, dataset=dataset)
 
     # Our timestamp formatting is incorrect, we need <|x.xx|> instead of <x.xx>
     df["text_timestamps"] = df["text_timestamps"].apply(
@@ -705,12 +808,18 @@ def prepare_dataset(
         axis=1,
     )
 
+    df[["previous_tokens", "previous_tokens_length"]] = df.apply(
+        tokenize_prompt,
+        args=("previous_text", tokenizer, False, max_previous_text_length),
+        result_type="expand",
+        axis=1,
+    )
+
     # Calculate all metrics
     df = get_all_metrics(df)
 
     return df
 
-# Write data class for stats_dict
 
 def write_summary_statistics(df, stats_dir, dataset, stage):
     """
@@ -727,11 +836,13 @@ def write_summary_statistics(df, stats_dir, dataset, stage):
     stats_dict = {
         "n": int(len(df)),
         "n_silence": int(len(df[df["is_silence"]])),
+        "n_previous_text": int(sum(df["previous_text"].notnull())),
         "n_words": int(df["n_words"].sum()),
         "n_tokens": int(df["labels_length"].sum()),
         "duration_hours": float(df["duration"].sum() / 3600),
         "duration_hours_silence": float(df[df["is_silence"]]["duration"].sum() / 3600),
     }
+    # Count how many rows have previous text
 
     if stage == "original":
         # Add stats for stage2_whisper_timestamps
@@ -853,7 +964,7 @@ if __name__ == "__main__":
         elif "audio_file" in df.columns:
             df.rename(columns={"audio_file": "audio_path"}, inplace=True)
         
-        # pandas can't save 2d array to parquet, so convert to list of arrays
+        # pandas can't save 2d array to parquet with pandas, so convert to list of arrays
         df["input_features"] = df["input_features"].apply(lambda x: list(x))
         
         # 6a) Select relevant columns
@@ -864,6 +975,8 @@ if __name__ == "__main__":
             "labels_timestamps",
             "text",
             "text_timestamps",
+            "previous_text",
+            "previous_tokens",
             "duration",
             "audio_path",
             "is_silence",
