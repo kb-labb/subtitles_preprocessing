@@ -92,7 +92,7 @@ bash launch_preprocess.sh /leonardo_work/EUHPC_A01_006/data/big_parquets/riksdag
 ```
 
 > [!IMPORTANT] 
-> Remember to change the `--dataset` argument in the `launch_preprocess.sh` script to match the dataset you are preprocessing.
+> Remember to change the `DATASET` and `STAGE` variables to reflect the dataset and stage you are preprocessing. See `preprocess_and_filter.py` arguments for possible choices for `--dataset` and `--stage`.
 
 ### Summarize dataset statistics
 
@@ -109,4 +109,4 @@ where `{stage}` is `original`, `stage1`, `stage2` or `stage_wav2vec2`.
 ### Friendly advice
 
 > [!TIP]
-> It may be unwise to launch more than 1000 SLURM jobs at once. In my experience it has handled ~700 jobs at once fine. But when I tried to launch a second set of an entire dataset shards' worth of jobs simultaneously the SLURM scheduler started to refuse some of the jobs.
+> It may be unwise to launch more than 50-100 SLURM jobs at once. It's usually not a problem to schedule more jobs if SLURM delays the allocation of resources. But when SLURM actually tries to allocate a dataset shards' worth of jobs all at once, it can cause issues with the scheduler and with I/O (too many processes tryign to write to disk simultaneously).

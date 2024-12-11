@@ -33,29 +33,29 @@ argparser = argparse.ArgumentParser()
 argparser.add_argument(
     "--data_dir",
     type=str,
-    # required=True,
-    default="/leonardo_work/EUHPC_A01_006/data/big_parquets/svt",
+    required=True,
+    # default="/leonardo_work/EUHPC_A01_006/data/big_parquets/youtube",
     help="Directory where all the parquets are stored.",
 )
 argparser.add_argument(
     "--output_dir",
     type=str,
-    # required=True,
-    default="/leonardo_scratch/fast/EUHPC_A01_006",
+    required=True,
+    # default="/leonardo_scratch/fast/EUHPC_A01_006",
     help="Directory where the processed data will be saved.",
 )
 argparser.add_argument(
     "--parquet_filename",
     type=str,
-    # required=True,
-    default="svt1_0135.parquet",
+    required=True,
+    # default="youtube_correct_89.parquet",
     help="Filename of the parquet file to process.",
 )
 argparser.add_argument(
     "--dataset",
     type=str,
     choices=["svt", "rixvox", "smdb", "youtube", "isof", "sls"],
-    default="svt",
+    default="youtube",
     help="Dataset source to preprocess.",
 )
 argparser.add_argument(
@@ -360,7 +360,7 @@ def tokenize_prompt(row, text_column, tokenizer, truncation=False, max_length=19
     """
     text = row[text_column]
 
-    if text is None:
+    if text is None or text == "<|nospeech|>" or len(text) == 0:
         return None, 0
 
     tokenizer.set_prefix_tokens(predict_timestamps=False)
@@ -704,6 +704,8 @@ def add_prev_text_column(df, dataset=args.dataset):
     """
     Add previous text column if the timestamps from consecutive rows match.
     Previous text can be used as prompt during training.
+
+    Lots of dataset specific logic because typing wasn't consistent across datasets.
     """
 
     if dataset == "rixvox":
@@ -713,16 +715,18 @@ def add_prev_text_column(df, dataset=args.dataset):
         # If "start" of the current row is equal to "end_prev" then insert the previous row's text
         df["prev_text_bool"] = df["start"] == df["end_prev"]
         df["previous_text"] = df["text"].shift(1)
+        # If previous text is <|nospeech|>, then prev_text_bool should be False
+        df.loc[df["previous_text"] == "<|nospeech|>", "prev_text_bool"] = False
         df.loc[~df["prev_text_bool"], "previous_text"] = None
     elif dataset == "svt" or dataset == "smdb" or dataset == "youtube":
-        if dataset == "smdb" or dataset == "youtube":
-            # sub_ids can sometimes be a string list that needs to be converted to a list with pd.eval
-            df["sub_ids"] = df["sub_ids"].apply(pd.eval)
-
         if dataset == "youtube":
             # Remove rows with no sub_ids
             df["len_subids"] = df["sub_ids"].apply(len)
-            df = df[df["len_subids"] > 0]
+            df = df.loc[df["len_subids"] != 0].reset_index(drop=True) # ''
+            df = df.loc[df["sub_ids"] != "[]"].reset_index(drop=True) # '[]'
+        if dataset == "smdb" or dataset == "youtube":
+            # sub_ids can sometimes be a string list that needs to be converted to a list with pd.eval
+            df["sub_ids"] = df["sub_ids"].apply(pd.eval)
 
         df["sub_id_first"] = df["sub_ids"].apply(lambda x: abs(x[0]))
         df["sub_id_last"] = df["sub_ids"].apply(lambda x: abs(x[-1]))
@@ -736,7 +740,8 @@ def add_prev_text_column(df, dataset=args.dataset):
         df["previous_text"] = None
         logging.warning("No previous text column added for this dataset. Please implement in add_prev_text_column.")
 
-    return df["previous_text"]
+    # df = df.drop(columns=["end_prev", "prev_text_bool"])
+    return df
         
 def prepare_dataset(
     df,
@@ -762,9 +767,6 @@ def prepare_dataset(
     df["n_words"] = df["text"].apply(lambda x: len(x.split()))
     df["text_timestamps"] = df["text_whisper"].apply(clean_text, args=(is_svt,))
     
-    # Add previous text column to use as prompt during training
-    df["previous_text"] = add_prev_text_column(df, dataset=dataset)
-
     # Our timestamp formatting is incorrect, we need <|x.xx|> instead of <x.xx>
     df["text_timestamps"] = df["text_timestamps"].apply(
         lambda x: re.sub(r"(?<=[<])(\d{1,2}\.\d{2})(?=[>])", r"|\1|", x)
@@ -791,6 +793,11 @@ def prepare_dataset(
             df.rename(columns={"audio": "audio_tensor"}, inplace=True)
         except KeyError:
             raise ValueError("No audio_tensor or audio column in the DataFrame.")
+    if dataset == "isof":
+        df.rename(columns={"start_time": "start", "end_time": "end", "audio": "audio_path"}, inplace=True)
+
+    # Add previous text column to use as prompt during training
+    df = add_prev_text_column(df, dataset=dataset)
 
     # Get spectogram features and length of the audio
     df[["input_features", "attention_mask", "input_length"]] = df.apply(
@@ -833,10 +840,14 @@ def write_summary_statistics(df, stats_dir, dataset, stage):
     """
 
     df["duration"] = (df["end"] - df["start"]) / 1000
+    if sum(df["previous_text"].notnull()):
+        n_previous_text = sum(df["previous_text"].notnull())
+    else:
+        n_previous_text = 0
     stats_dict = {
         "n": int(len(df)),
         "n_silence": int(len(df[df["is_silence"]])),
-        "n_previous_text": int(sum(df["previous_text"].notnull())),
+        "n_previous_text": int(n_previous_text),
         "n_words": int(df["n_words"].sum()),
         "n_tokens": int(df["labels_length"].sum()),
         "duration_hours": float(df["duration"].sum() / 3600),
