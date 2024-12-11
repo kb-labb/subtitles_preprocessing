@@ -59,7 +59,7 @@ for PARQUET_FILE in ${REMAINING_FILENAMES}; do
         --mask_feature_length 10 \
         --min_input_length 8000 \
         --max_input_length 480000 \
-        --stats_dir <
+        --stats_dir /leonardo_work/EUHPC_A01_006/data/big_parquets/stats/whisper-smaller
         "
 
     srun --partition=boost_usr_prod --nodes=1 \
