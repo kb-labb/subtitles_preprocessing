@@ -7,11 +7,13 @@
 # Read list of files from a directory and launch preprocess_and_filter.py for each file
 DATA_DIR=$1 # E.g. /leonardo_work/EUHPC_A01_006/data/big_parquets/svt
 GLOB_PATTERN=$2 # Wildcard pattern, e.g. svt1_01*.parquet or *.parquet
-STAGE="stage2"  # which stage of training? stage1, stage2 or stage2_wav2vec2
+STAGE="stage1"  # which stage of training? stage1, stage2 or stage2_wav2vec2
 DATASET="isof"  # which dataset? svt, smdb, rixvox, youtube, isof or sls
+OUTPUT_DIR="/leonardo_scratch/large/userexternal/jsikora0/parquet_stages_whisperlarge" # Change --stats_dir depending on if large, or smaller models
 
 # Destination directory
-DEST_DIR="/leonardo_scratch/large/userexternal/jsikora0/parquet_stages_alt/${STAGE}/$(basename ${DATA_DIR})" 
+DEST_DIR="${OUTPUT_DIR}/${STAGE}/$(basename ${DATA_DIR})"
+
 # List source files matching the pattern
 SOURCE_PARQUET_PATHS=$(ls ${DATA_DIR}/${GLOB_PATTERN})
 SOURCE_FILENAMES=$(echo "$SOURCE_PARQUET_PATHS" | xargs -n 1 basename)
@@ -36,17 +38,21 @@ else
 fi
 
 source venvs/whisper/bin/activate
+
 echo "Launching preprocess_and_filter.py for the following files:"
 echo "${REMAINING_FILENAMES}"
 
+i=1
+MINUTES=0 # Minutes from now to start the first job
+BEGIN="now+${MINUTES}minutes"
 for PARQUET_FILE in ${REMAINING_FILENAMES}; do
     COMMAND="python preprocess_and_filter.py \
         --data_dir ${DATA_DIR} \
-        --output_dir /leonardo_scratch/large/userexternal/jsikora0/parquet_stages_alt \
+        --output_dir ${OUTPUT_DIR} \
         --parquet_filename $(basename ${PARQUET_FILE}) \
         --dataset ${DATASET} \
         --stage ${STAGE} \
-        --model_name_or_path openai/whisper-small \
+        --model_name_or_path openai/whisper-large-v3 \
         --cache_dir cache \
         --language sv \
         --task transcribe \
@@ -59,19 +65,28 @@ for PARQUET_FILE in ${REMAINING_FILENAMES}; do
         --mask_feature_length 10 \
         --min_input_length 8000 \
         --max_input_length 480000 \
-        --stats_dir /leonardo_work/EUHPC_A01_006/data/big_parquets/stats/whisper-smaller
+        --stats_dir /leonardo_work/EUHPC_A01_006/data/big_parquets/stats/whisper-large
         "
+    
+    # We add X minutes per 20 files processed to BEGIN to avoid all jobs starting at the same time
+    if [ $((i % 20)) -eq 0 ]; then
+        MINUTES=$((MINUTES+2))
+        BEGIN="now+${MINUTES}minutes"
+    fi
 
     srun --partition=boost_usr_prod --nodes=1 \
-        --ntasks=1 --cpus-per-task=2 --mem=80GB \
+        --ntasks=1 --cpus-per-task=2 --mem=90GB \
         --gres=gpu:0 --time=0-00:40:00 --qos=normal \
         --account=EUHPC_A01_006 \
+        --begin=${BEGIN} \
         bash -c "${COMMAND}" 2>&1 | tee -a logs/$(basename ${PARQUET_FILE}).out &
+    
+    # Increment counter
+    i=$((i+1))
 done
 
 # Wait for background jobs to finish before exiting
 # wait
 
 # --begin=now+15minutes
-
 # source venvs/whisper/bin/activate

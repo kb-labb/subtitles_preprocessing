@@ -34,7 +34,7 @@ argparser.add_argument(
     "--data_dir",
     type=str,
     required=True,
-    # default="/leonardo_work/EUHPC_A01_006/data/big_parquets/youtube",
+    # default="/leonardo_work/EUHPC_A01_006/data/big_parquets/youtube_new",
     help="Directory where all the parquets are stored.",
 )
 argparser.add_argument(
@@ -54,14 +54,14 @@ argparser.add_argument(
 argparser.add_argument(
     "--dataset",
     type=str,
-    choices=["svt", "rixvox", "smdb", "youtube", "isof", "sls"],
+    choices=["svt", "rixvox", "smdb", "youtube", "isof", "sls", "nst"],
     default="youtube",
     help="Dataset source to preprocess.",
 )
 argparser.add_argument(
     "--stage",
     type=str,
-    choices=["stage1", "stage2", "stage_wav2vec2"],
+    choices=["stage1", "stage2", "stage_wav2vec2", "stage2_svt"],
     default="stage1",
     help="""Which quality filters to use for creating different stages
     of pretraining corpora (dataset annealing).""",
@@ -259,7 +259,9 @@ def clean_text(text, svt=False):
         # fmt: on
 
         # Regex  to match any of the words as a stem
-        pattern = r"\b(?:" + "|".join(word + r"\w*" for word in capitalized_words) + r")\b"
+        pattern = (
+            r"\b(?:" + "|".join(word + r"\w*" for word in capitalized_words) + r")\b"
+        )
 
         # Find any segment of capitalized words
         capitalized_segment_pattern = r"(\b[A-ZÅÄÖ]+\b(?:\s+\b[A-ZÅÄÖ]+\b)*)"
@@ -326,7 +328,9 @@ def calculate_metrics(row, score_function: callable, normalize_text: callable):
     return score_whisper, score_wav2vec
 
 
-def tokenize_ground_truth(row, text_column, text_timestamps_column, tokenizer, truncation=False):
+def tokenize_ground_truth(
+    row, text_column, text_timestamps_column, tokenizer, truncation=False
+):
     """
     Args:
         row: row of the DataFrame
@@ -364,7 +368,9 @@ def tokenize_prompt(row, text_column, tokenizer, truncation=False, max_length=19
         return None, 0
 
     tokenizer.set_prefix_tokens(predict_timestamps=False)
-    prompt_tokens = tokenizer(text, truncation=truncation, add_special_tokens=False).input_ids
+    prompt_tokens = tokenizer(
+        text, truncation=truncation, add_special_tokens=False
+    ).input_ids
 
     # Truncate and -1 for <|startofprev|>
     prompt_tokens_left_truncated = prompt_tokens[-(max_length - 1) :]
@@ -400,12 +406,18 @@ def extract_audio_features(
 def get_all_metrics(df):
 
     normalize_text_fun = (
-        rixvox_text.normalize_text if args.dataset == "rixvox" else sub_preproc_text.normalize_text
+        rixvox_text.normalize_text
+        if args.dataset == "rixvox"
+        else sub_preproc_text.normalize_text
     )
 
     df["text_normalized"] = df["text"].apply(normalize_text_fun)
-    df["whisper_transcription_normalized"] = df["whisper_transcription"].apply(normalize_text_fun)
-    df["wav2vec_transcription_normalized"] = df["wav2vec_transcription"].apply(normalize_text_fun)
+    df["whisper_transcription_normalized"] = df["whisper_transcription"].apply(
+        normalize_text_fun
+    )
+    df["wav2vec_transcription_normalized"] = df["wav2vec_transcription"].apply(
+        normalize_text_fun
+    )
 
     df[["bleu_whisper", "bleu_wav2vec2"]] = df.apply(
         calculate_metrics,
@@ -497,6 +509,22 @@ def filter_svt(df, stage=args.stage):
                 & (df["whisper_cer_tail"] <= 0.3)
             ))
             | (((df["bleu_whisper"] >= 0.4) & ~df["as_run"])
+            & (
+                (df["whisper_cer_head"] <= 0.4)
+                & (df["whisper_cer_tail"] <= 0.4)
+            ))
+            | df["is_silence"]
+        )
+        # fmt: on
+    elif stage == "stage2_svt":
+        # fmt: off
+        df["stage2"] = (
+            (((df["bleu_whisper"] >= 0.3) & df["as_run"])
+            & (
+                (df["whisper_cer_head"] <= 0.3)
+                & (df["whisper_cer_tail"] <= 0.3)
+            ))
+            | (((df["bleu_whisper"] >= 0.2) & ~df["as_run"])
             & (
                 (df["whisper_cer_head"] <= 0.4)
                 & (df["whisper_cer_tail"] <= 0.4)
@@ -672,6 +700,8 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
         df = filter_general(
             df,
             stage,
+            stage1_bleu=0.01,
+            stage2_bleu=0.01, stage2_cer_head=1, stage2_cer_tail=1,
         )
     elif dataset == "sls":
         df = filter_general(
