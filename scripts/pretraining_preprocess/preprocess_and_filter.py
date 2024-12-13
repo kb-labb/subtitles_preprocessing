@@ -708,6 +708,11 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
             df,
             stage,
         )
+    elif dataset == "nst":
+        df = filter_general(
+            df,
+            stage,
+        )
     # fmt: on
 
     # Remove if audio too short or too long
@@ -927,6 +932,9 @@ if __name__ == "__main__":
         input_path = os.path.join(args.data_dir, args.parquet_filename)
         logging.info(f"Loading the dataset: {input_path}.")
         df = pd.read_parquet(input_path)
+        if args.dataset == "nst":
+            df = df[~df.text_whisper.str.contains("\\\\Komma")]
+            df = df[~df.text_whisper.str.contains("\\\\Punkt")]
 
         # 2. Load pretrained model config, tokenizer, and feature extractor
         config = AutoConfig.from_pretrained(
