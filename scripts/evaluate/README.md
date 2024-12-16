@@ -2,6 +2,11 @@
 
 And example of a simple evaluation script is `eval_fleurs.py`.
 
+For qualitative evaluations, run
+
+1. `eval_compare.py`, which outputs ground truth and model predictions to `results/qualitative/{split}`.
+2. `comparison_to_html.py` which outputs a HTML table that highlights diffs between ground truth and model predictions, and displays audio for each example.
+
 ### How to load model from checkpoints
 
 The process summarized:
