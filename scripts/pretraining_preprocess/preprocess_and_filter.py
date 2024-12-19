@@ -217,6 +217,10 @@ def clean_text(text, svt=False):
     # Remove everything between brackets
     text = re.sub(r"\[.*?\]", "", text)
 
+    # Remove if HTML tag containing letters or whitespace, e.g. < p>
+    # But don't target <> that has numbers or punctuation like <|2.24|>.
+    text = re.sub(r"<[/a-zA-Z\s]+>", "", text)
+
     # Remove everything between asterisks *
     text = re.sub(r"\*.*?\*", "", text)
 
@@ -365,7 +369,7 @@ def tokenize_prompt(row, text_column, tokenizer, truncation=False, max_length=19
     text = row[text_column]
 
     if text is None or text == "<|nospeech|>" or len(text) == 0:
-        return None, 0
+        return [None], 0
 
     tokenizer.set_prefix_tokens(predict_timestamps=False)
     prompt_tokens = tokenizer(
@@ -518,7 +522,7 @@ def filter_svt(df, stage=args.stage):
         # fmt: on
     elif stage == "stage2_svt":
         # fmt: off
-        df["stage2"] = (
+        df["stage2_svt"] = (
             (((df["bleu_whisper"] >= 0.3) & df["as_run"])
             & (
                 (df["whisper_cer_head"] <= 0.3)
@@ -712,6 +716,8 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
         df = filter_general(
             df,
             stage,
+            stage1_bleu=0.01,
+            stage2_bleu=0.01, stage2_cer_head=1, stage2_cer_tail=1,
         )
     # fmt: on
 
