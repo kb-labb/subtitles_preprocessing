@@ -21,9 +21,9 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from transformers.pipelines.pt_utils import KeyDataset
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument("--model_path", type=str, default="/leonardo_work/EUHPC_A01_006/experiments_whisper/outputs/2024-12-06_medium-stage1")
-argparser.add_argument("--checkpoint", type=str, default="750")
-argparser.add_argument("--split", type=str, default="validation")
+argparser.add_argument("--model_path", type=str, default="/leonardo_work/EUHPC_A01_006/experiments_whisper/outputs/2024-12-26_large-stage1-workers5-fa2")
+argparser.add_argument("--checkpoint", type=str, default="148500")
+argparser.add_argument("--split", type=str, default="test")
 argparser.add_argument("--results_dir", type=str, default="/leonardo_work/EUHPC_A01_006/kb-leonardo/agnes/subtitles_preprocessing/scripts/evaluate/results")
 argparser.add_argument("--temp_dir", type=str, default = '/leonardo_work/EUHPC_A01_006/kb-leonardo/agnes/model_files/')
 args = argparser.parse_args()
@@ -113,12 +113,37 @@ pipe = pipeline(
     generate_kwargs=gen_kwargs,
 )
 
+################
+# Evaluate nst #
+################
+list_files = ["/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test" +"/"+ f for f in os.listdir("/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test") if os.path.isfile(os.path.join("/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test", f))]
+nst = load_dataset("parquet",data_files={'test': list_files},split="test",cache_dir="cache")
+#nst = load_dataset("parquet", data_files={'test': "/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test/nst_stasjon17.parquet"}, split='test', cache_dir='cache')
+
+nst = nst.with_format("np", columns=["audio_tensor"], output_all_columns=True)
+
+output_texts = []
+for out in tqdm(pipe(KeyDataset(nst,"audio_tensor"))):
+    output_texts.append(out["text"])
+
+data_nst = {
+    "gold_standard": nst["texts"],
+    "gold_standard_norm": [normalize_text(ex["texts"]) for ex in nst],
+    "whisper": output_texts,
+    "whisper_norm": [normalize_text(t) for t in output_texts],
+}
+
+df_nst= pd.DataFrame(data_nst)
+df_nst["wer"] = df_nst.apply(lambda row: wer(row["gold_standard_norm"], row["whisper_norm"]), axis=1)
+df_nst["bleu"] = df_nst.apply(lambda row: calculate_bleu(row["gold_standard_norm"], row["whisper_norm"]), axis=1)
+
+
 ###################
 # Evaluate fleurs #
 ###################
 
 #fleurs = load_from_disk("/leonardo_work/EUHPC_A01_006/data/google___fleurs", "sv_se")
-fleurs = load_dataset("google/fleurs", "sv_se", split="validation", cache_dir="/leonardo_work/EUHPC_A01_006/kb-leonardo/agnes/subtitles_preprocessing/scripts/evaluate/cache")
+fleurs = load_dataset("google/fleurs", "sv_se", split="test", cache_dir="/leonardo_work/EUHPC_A01_006/kb-leonardo/agnes/subtitles_preprocessing/scripts/evaluate/cache")
 
 output_texts = []
 for out in tqdm(pipe(KeyDataset(fleurs, "audio"))):
@@ -156,29 +181,7 @@ df_commonv= pd.DataFrame(data_commonv)
 df_commonv["wer"] = df_commonv.apply(lambda row: wer(row["gold_standard_norm"], row["whisper_norm"]), axis=1)
 df_commonv["bleu"] = df_commonv.apply(lambda row: calculate_bleu(row["gold_standard_norm"], row["whisper_norm"]), axis=1)
 
-################
-# Evaluate nst #
-################
-'''list_files = ["/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test +"/"+ f for f in os.listdir("/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test") if os.path.isfile(os.path.join("/leonardo_work/EUHPC_A01_006/data/big_parquets/nst_test", f))]
-nst = load_dataset("parquet",data_files={'train': list_files},split="train",cache_dir="cache")
 
-nst = nst.with_format("np", columns=["audio_tensor"], output_all_columns=True)
-
-output_texts = []
-for out in tqdm(pipe(KeyDataset(nst,"audio_tensor"))):
-    output_texts.append(out["text"])
-
-data_nst = {
-    "gold_standard": nst["sentence"],
-    "gold_standard_norm": [normalize_text(ex["sentence"]) for ex in nst],
-    "whisper": output_texts,
-    "whisper_norm": [normalize_text(t) for t in output_texts],
-}
-
-df_nst= pd.DataFrame(data_commonv)
-df_nst["wer"] = df_nst.apply(lambda row: wer(row["gold_standard_norm"], row["whisper_norm"]), axis=1)
-df_nst["bleu"] = df_nst.apply(lambda row: calculate_bleu(row["gold_standard_norm"], row["whisper_norm"]), axis=1)
-'''
 ##################
 # Export results #
 ##################
@@ -186,8 +189,9 @@ df_nst["bleu"] = df_nst.apply(lambda row: calculate_bleu(row["gold_standard_norm
 results_dict = {
     "model": model_name,
     "checkpoint": args.checkpoint,
-    "fleurs_validation": df_fleurs.to_dict(),
-    "commonv_test": df_commonv.to_dict()
+    "fleurs_test": df_fleurs.to_dict(),
+    "commonv_test": df_commonv.to_dict(),
+    "nst_test": df_nst.to_dict(),
 }
 
 
