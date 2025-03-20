@@ -6,10 +6,12 @@ import re
 import unicodedata
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import rixvox.text as rixvox_text
-import sub_preproc.utils.text as sub_preproc_text
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+from rapidfuzz import fuzz
+import sub_preproc.utils.text as sub_preproc_text
 from rapidfuzz.distance.Levenshtein import (
     normalized_distance as levenshtein_dist_normalized,
 )
@@ -18,6 +20,8 @@ from rixvox.metrics import (
     first_word_fuzzy_score,
     last_word_fuzzy_score,
 )
+from tokenizers.models import BPE
+from transformers import AutoConfig, AutoFeatureExtractor, AutoTokenizer
 
 logging.basicConfig(
     filename="logs/preprocess_and_filter.log",
@@ -125,7 +129,6 @@ argparser.add_argument(
 )
 
 args = argparser.parse_args()
-
 
 def calculate_bleu(reference, hypothesis):
     """
@@ -304,6 +307,7 @@ def calculate_metrics(row, score_function: callable, normalize_text: callable):
 
 
 def get_all_metrics(df):
+
     normalize_text_fun = (
         rixvox_text.normalize_text if args.dataset == "rixvox" else sub_preproc_text.normalize_text
     )
@@ -400,7 +404,7 @@ def filter_svt(df):
         & ((df["wav2vec2_cer_head"] <= 0.2) & (df["wav2vec2_cer_tail"] <= 0.2))
         & (
             (((df["bleu_whisper"] >= 0.9) & (df["rouge_whisper"] > 0.9)) & df["as_run"])
-            | (((df["bleu_whisper"] >= 0.8) & (df["rouge_whisper" > 0.8])) & ~df["as_run"])
+            | (((df["bleu_whisper"] >= 0.8) & (df["rouge_whisper"] > 0.8)) & ~df["as_run"])
         )
     )
 
@@ -411,7 +415,7 @@ def filter_svt(df):
 # fmt: off
 def filter_general(
     df,
-    stage2_bleu=0.8,
+    stage2_bleu=0.8, 
     stage2_rouge=0.8,
     stage2_cer_head=0.2, stage2_cer_tail=0.2,
     stage2_cer_head_whisper_timestamps=0.2, stage2_cer_tail_whisper_timestamps=0.2,
@@ -445,7 +449,7 @@ def filter_general(
             (df["wav2vec2_cer_head"] <= stage2_cer_head)
             & (df["wav2vec2_cer_tail"] <= stage2_cer_tail)
         )
-        & ((df["bleu_whisper"] >= stage2_bleu) & (df["bleu_wav2vec2"] >= stage2_bleu)
+        & ((df["bleu_whisper"] >= stage2_bleu) & (df["bleu_wav2vec2"] >= stage2_bleu) 
             & (df["rouge_whisper"] >= stage2_rouge) & (df["rouge_wav2vec2"] >= stage2_rouge))
         | (
             ((df["bleu_wav2vec2"] >= 0.85) & (df["rouge_wav2vec2"] >= 0.85))
@@ -473,12 +477,12 @@ def filter_dataset(df, dataset=args.dataset, stage=args.stage, apply_filter=True
 
     # fmt: off
     if dataset == "svt":
-        df = filter_svt(df, stage)
+        df = filter_svt(df)
     elif dataset == "rixvox":
         df = filter_general(
             df,
             stage2_bleu=0.8,
-            stage2_rouge=0.8,
+            stage2_rouge=0.8, 
             stage2_cer_head=0.2, stage2_cer_tail=0.2,
             stage2_cer_head_whisper_timestamps=0.2, stage2_cer_tail_whisper_timestamps=0.2,
         )
@@ -486,7 +490,7 @@ def filter_dataset(df, dataset=args.dataset, stage=args.stage, apply_filter=True
         df = filter_general(
             df,
             stage2_bleu=0.8,
-            stage2_rouge=0.8,
+            stage2_rouge=0.8, 
             stage2_cer_head=0.2, stage2_cer_tail=0.2,
             stage2_cer_head_whisper_timestamps=0.2, stage2_cer_tail_whisper_timestamps=0.2,
         )
@@ -507,7 +511,7 @@ def filter_dataset(df, dataset=args.dataset, stage=args.stage, apply_filter=True
         df = filter_general(
             df,
             stage2_bleu=0.8,
-            stage2_rouge=0.8,
+            stage2_rouge=0.8, 
             stage2_cer_head=0.2, stage2_cer_tail=0.2,
             stage2_cer_head_whisper_timestamps=0.2, stage2_cer_tail_whisper_timestamps=0.2,
         )
@@ -541,7 +545,7 @@ def filter_dataset(df, dataset=args.dataset, stage=args.stage, apply_filter=True
         df = filter_general(
             df,
             stage2_rouge=0,
-            stage2_bleu=0,
+            stage2_bleu=0, 
             stage2_cer_head=1, stage2_cer_tail=1,
             stage2_cer_head_whisper_timestamps=0, stage2_cer_tail_whisper_timestamps=0,
         )
@@ -634,9 +638,9 @@ if __name__ == "__main__":
         data_dir = Path(args.data_dir).parts[-1]
         output_dir = Path(args.output_dir) / args.stage / data_dir
         os.makedirs(output_dir, exist_ok=True)
-
+        
         output_path = output_dir / args.parquet_filename
-
+        
         if os.path.exists(output_path) and not args.overwrite and not args.stats_only:
             if os.path.getsize(output_path) > 0:
                 logging.info(f"File {output_path} exists and is not empty. Skipping preprocessing.")
@@ -677,14 +681,14 @@ if __name__ == "__main__":
 
         # Add data source to the DataFrame
         df["data_source"] = args.dataset
-
+        
         #### 6. Save the processed DataFrame to disk as a parquet file
         # Standardize audio_path name
         if "audio_path" in df.columns:
             pass
         elif "audio_file" in df.columns:
             df.rename(columns={"audio_file": "audio_path"}, inplace=True)
-
+        
         # 6a) Select relevant columns
         df = df[[
             "text",
@@ -695,13 +699,13 @@ if __name__ == "__main__":
             "is_silence",
             "data_source"
         ]].reset_index(drop=True)
-
+        
         # 6b) Save the processed DataFrame to disk as a parquet file
         # Get the last directory in the data_dir path
         data_dir = Path(args.data_dir).parts[-1]
         output_dir = Path(args.output_dir) / args.stage / data_dir
         os.makedirs(output_dir, exist_ok=True)
-
+        
         output_filename = output_dir / args.parquet_filename
 
         logging.info(f"Saving the processed dataset to: {output_filename}.")

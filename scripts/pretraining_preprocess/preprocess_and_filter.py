@@ -9,13 +9,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import rixvox.text as rixvox_text
+from jiwer import wer
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+from rapidfuzz import fuzz
 import sub_preproc.utils.text as sub_preproc_text
 from rapidfuzz.distance.Levenshtein import (
     normalized_distance as levenshtein_dist_normalized,
 )
 from rixvox.metrics import (
-    calculate_bleu,
-    calculate_rouge,
     calculate_wer,
     first_word_fuzzy_score,
     last_word_fuzzy_score,
@@ -190,6 +191,40 @@ argparser.add_argument(
 )
 
 args = argparser.parse_args()
+
+
+def calculate_bleu(reference, hypothesis):
+    """
+    Calculate BLEU score between two texts.
+    """
+
+    if reference is None or hypothesis is None:
+        return None
+    else:
+        chencherry = SmoothingFunction()
+        return sentence_bleu(
+            references=[reference.split()],
+            hypothesis=hypothesis.split(),
+            smoothing_function=chencherry.method4,
+            weights=(0, 0.25, 0.5, 0.25),
+        )
+
+
+def calculate_rouge(reference, hypothesis):
+    """
+    Calculate weighted ROUGE-N score between two texts.
+    """
+
+    if reference is None or hypothesis is None:
+        return None
+    else:
+        chencherry = SmoothingFunction()
+        return sentence_bleu(
+            references=[hypothesis.split()],
+            hypothesis=reference.split(),
+            smoothing_function=chencherry.method4,
+            weights=(0, 0.25, 0.5, 0.25),
+        )
 
 
 def clean_text(text, svt=False):
@@ -406,7 +441,6 @@ def extract_audio_features(
 
 
 def get_all_metrics(df):
-
     normalize_text_fun = (
         rixvox_text.normalize_text if args.dataset == "rixvox" else sub_preproc_text.normalize_text
     )
@@ -551,14 +585,15 @@ def filter_svt(df, stage=args.stage):
         )
         # fmt: on
     elif stage == "stage_wav2vec2":
-        df["stage_wav2vec2"] = (
-            ((df["whisper_cer_head"] <= 0.2) & (df["whisper_cer_tail"] <= 0.2))
-            & ((df["wav2vec2_cer_head"] <= 0.2) & (df["wav2vec2_cer_tail"] <= 0.2))
-            & (
-                ((df["bleu_whisper"] >= 0.9) & df["as_run"])
-                | ((df["bleu_whisper"] >= 0.8) & ~df["as_run"])
-            )
-        )
+       df["stage_wav2vec2"] = (
+           ((df["whisper_cer_head"] <= 0.2) & (df["whisper_cer_tail"] <= 0.2))
+           & ((df["wav2vec2_cer_head"] <= 0.2) & (df["wav2vec2_cer_tail"] <= 0.2))
+           & (
+               (((df["bleu_whisper"] >= 0.9) & (df["rouge_whisper"] > 0.9)) & df["as_run"])
+               | (((df["bleu_whisper"] >= 0.8) & (df["rouge_whisper"] > 0.8)) & ~df["as_run"])
+           )
+       )
+
 
     # Training with timestamps is a subset of stage1 and stage2 with additional stricter filters
     # We need this column in those stages to determine when to train with timestamps.
@@ -579,12 +614,13 @@ def filter_svt(df, stage=args.stage):
 def filter_general(
     df,
     stage=args.stage, 
-    stage1_bleu=0.2, 
-    stage2_bleu=0.6, stage2_cer_head=0.3, stage2_cer_tail=0.3,
-    stage2_rouge=0.7,
+    stage1_bleu=0.2,
+    stage2_bleu=0.8,
+    stage2_rouge=0.8,
+    stage2_cer_head=0.2, stage2_cer_tail=0.2,
     stage2_bleu_timestamps=0.6, 
-    stage2_cer_head_whisper_timestaps=0.2, stage2_cer_tail_whisper_timestaps=0.2,
-    stage2_cer_head_wav2vec2_timestaps=0.4, stage2_cer_tail_wav2vec2_timestaps=0.4,
+    stage2_cer_head_whisper_timestamps=0.2, stage2_cer_tail_whisper_timestamps=0.2,
+    stage2_cer_head_wav2vec2_timestamps=0.4, stage2_cer_tail_wav2vec2_timestamps=0.4,
 ):
     # fmt: on
     """
@@ -598,10 +634,10 @@ def filter_general(
         stage2_cer_head: CER threshold for the head of the text
         stage2_cer_tail: CER threshold for the tail of the text
         stage2_bleu_timestamps: BLEU threshold for stage2 with timestamps
-        stage2_cer_head_whisper_timestaps: CER threshold for the head of the text with timestamps
-        stage2_cer_tail_whisper_timestaps: CER threshold for the tail of the text with timestamps
-        stage2_cer_head_wav2vec2_timestaps: CER threshold for the head of the text with timestamps
-        stage2_cer_tail_wav2vec2_timestaps: CER threshold for the tail of the text with timestamps
+        stage2_cer_head_whisper_timestamps: CER threshold for the head of the text with timestamps
+        stage2_cer_tail_whisper_timestamps: CER threshold for the tail of the text with timestamps
+        stage2_cer_head_wav2vec2_timestamps: CER threshold for the head of the text with timestamps
+        stage2_cer_tail_wav2vec2_timestamps: CER threshold for the tail of the text with timestamps
     
     Returns:
         df: DataFrame with boolean columns for the different stages
@@ -620,33 +656,34 @@ def filter_general(
 
     elif stage == "stage_wav2vec2":
         df["stage_wav2vec2"] = (
-            (
-                (df["whisper_cer_head"] <= stage2_cer_head)
-                & (df["whisper_cer_tail"] <= stage2_cer_tail)
-            )
-            & (
-                (df["wav2vec2_cer_head"] <= stage2_cer_head)
-                & (df["wav2vec2_cer_tail"] <= stage2_cer_tail)
-            )
-            & ((df["bleu_whisper"] >= stage2_bleu) & (df["bleu_wav2vec2"] >= stage2_bleu) 
-               & (df["rouge_whisper"] >= stage2_rouge) & (df["rouge_wav2vec2"] >= stage2_rouge))
-            | (
-                ((df["bleu_wav2vec2"] >= 0.80) & (df["rouge_wav2vec2"] >= 0.8))
-                & (df["whisper_cer_head"] <= 0.2)
-                & (df["whisper_cer_tail"] <= 0.2)
-            )
-        )
+          (
+              (df["whisper_cer_head"] <= stage2_cer_head)
+              & (df["whisper_cer_tail"] <= stage2_cer_tail)
+          )
+          & (
+              (df["wav2vec2_cer_head"] <= stage2_cer_head)
+              & (df["wav2vec2_cer_tail"] <= stage2_cer_tail)
+          )
+          & ((df["bleu_whisper"] >= stage2_bleu) & (df["bleu_wav2vec2"] >= stage2_bleu)
+              & (df["rouge_whisper"] >= stage2_rouge) & (df["rouge_wav2vec2"] >= stage2_rouge))
+          | (
+              ((df["bleu_wav2vec2"] >= 0.85) & (df["rouge_wav2vec2"] >= 0.85))
+              & (df["whisper_cer_head"] <= stage2_cer_head_whisper_timestamps)
+              & (df["whisper_cer_tail"] <= stage2_cer_tail_whisper_timestamps)
+          )
+      )
+
 
     # Training with timestamps is a subset of stage1 and stage2 with additional stricter filters
     # We need this column in those stages to determine when to train with timestamps.
     df["stage2_whisper_timestamps"] = (
         (
-            (df["whisper_cer_head"] <= stage2_cer_head_whisper_timestaps)
-            & (df["whisper_cer_tail"] <= stage2_cer_tail_whisper_timestaps)
+            (df["whisper_cer_head"] <= stage2_cer_head_whisper_timestamps)
+            & (df["whisper_cer_tail"] <= stage2_cer_tail_whisper_timestamps)
         )
         & (
-            (df["wav2vec2_cer_head"] <= stage2_cer_head_wav2vec2_timestaps)
-            & (df["wav2vec2_cer_tail"] <= stage2_cer_tail_wav2vec2_timestaps)
+            (df["wav2vec2_cer_head"] <= stage2_cer_head_wav2vec2_timestamps)
+            & (df["wav2vec2_cer_tail"] <= stage2_cer_tail_wav2vec2_timestamps)
         )
         & (df["bleu_whisper"] >= stage2_bleu_timestamps)
         | df["is_silence"]
@@ -685,8 +722,9 @@ def filter_dataset(df, config, dataset=args.dataset, stage=args.stage, apply_fil
         df = filter_general(
             df,
             stage,
-            stage2_bleu=0.7, stage2_cer_head=0.2, stage2_cer_tail=0.2,
+            stage2_bleu=0.7,
             stage2_rouge=0.7,
+            stage2_cer_head=0.2, stage2_cer_tail=0.2,
         )
 
         # We made too many short chunks in Youtube, so sample a subet of them
@@ -954,9 +992,9 @@ if __name__ == "__main__":
         data_dir = Path(args.data_dir).parts[-1]
         output_dir = Path(args.output_dir) / args.stage / data_dir
         os.makedirs(output_dir, exist_ok=True)
-        
+
         output_path = output_dir / args.parquet_filename
-        
+
         if os.path.exists(output_path) and not args.overwrite and not args.stats_only:
             if os.path.getsize(output_path) > 0:
                 logging.info(f"File {output_path} exists and is not empty. Skipping preprocessing.")
@@ -1029,7 +1067,7 @@ if __name__ == "__main__":
 
         #### 5. Filter the dataset based on the stage and dataset
         df = filter_dataset(df, config, args.dataset, args.stage, apply_filter=True)
-            
+
         # 5b) Statistics for the dataset after filtering
         write_summary_statistics(df, args.stats_dir, args.dataset, args.stage)
 
@@ -1039,14 +1077,14 @@ if __name__ == "__main__":
 
         # Add data source to the DataFrame
         df["data_source"] = args.dataset
-        
+
         #### 6. Save the processed DataFrame to disk as a parquet file
         # Standardize audio_path name
         if "audio_path" in df.columns:
             pass
         elif "audio_file" in df.columns:
             df.rename(columns={"audio_file": "audio_path"}, inplace=True)
-        
+
         # pandas can't save 2d array to parquet with pandas, so convert to list of arrays
         df["input_features"] = df["input_features"].apply(lambda x: list(x))
         
@@ -1066,13 +1104,13 @@ if __name__ == "__main__":
             "stage2_whisper_timestamps",
             "data_source"
         ]].reset_index(drop=True)
-        
+
         # 6b) Save the processed DataFrame to disk as a parquet file
         # Get the last directory in the data_dir path
         data_dir = Path(args.data_dir).parts[-1]
         output_dir = Path(args.output_dir) / args.stage / data_dir
         os.makedirs(output_dir, exist_ok=True)
-        
+
         output_filename = output_dir / args.parquet_filename
 
         logging.info(f"Saving the processed dataset to: {output_filename}.")

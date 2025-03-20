@@ -6,6 +6,8 @@ input/*
 subs_preprocessed/*
 results/*
 tv3*
+scripts/pretraining_preprocess/cache/
+scripts/pretraining_preprocess/logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
